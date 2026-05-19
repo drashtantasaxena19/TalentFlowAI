@@ -31,13 +31,14 @@ app.include_router(auth_router)
 app.include_router(candidate_router)
 app.include_router(resume_router)
 app.include_router(saved_jobs_router)
+app.include_router(job_prefetch_router)
 app.include_router(employer_router, prefix="/api")
 app.include_router(subscription_router, prefix="/api")
 app.include_router(payment_router, prefix="/api")
-app.include_router(job_prefetch_router)
 app.include_router(admin_router, prefix="/api")
 app.include_router(application_router, prefix="/api")
 
+
 @app.get("/")
 def home():
-    return {"message": "🚀 TalentFlow AI Backend Running"}
+    return {"message": "TalentFlow AI Backend Running"}

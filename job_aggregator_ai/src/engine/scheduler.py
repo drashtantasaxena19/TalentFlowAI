@@ -6,35 +6,41 @@ from src.engine.unstop_scraper import run_unstop_scraper
 from src.engine.internshala_scraper import run_internshala_jobs
 
 
+def get_total(result):
+    if isinstance(result, dict):
+        return result.get("inserted", 0) + result.get("updated", 0)
+    if isinstance(result, int):
+        return result
+    return 0
+
+
 async def safe_run(name, func):
     start = datetime.now()
 
     try:
-        result = await func()  # 🔥 expect scraper to return count
+        result = await func()
+        total = get_total(result)
         duration = datetime.now() - start
-
-        print(f"✅ {name} | Time: {duration} | Jobs: {result if result else 0}")
-
-        return result if result else 0
+        print(f"[{name}] completed | jobs={total} | time={duration}")
+        return total
 
     except Exception as e:
         duration = datetime.now() - start
-        print(f"❌ {name} failed | Time: {duration} | Error: {e}")
+        print(f"[{name}] failed | time={duration} | error={e}")
         return 0
 
 
 async def automation_cycle():
-    start_cycle = datetime.now()
-
-    print(f"\n🚀 CYCLE START: {start_cycle.strftime('%H:%M:%S')}")
+    start = datetime.now()
+    print(f"\n[SCHEDULER] cycle started | {start.strftime('%Y-%m-%d %H:%M:%S')}")
 
     unstop_count = await safe_run("Unstop", run_unstop_scraper)
     internshala_count = await safe_run("Internshala", run_internshala_jobs)
 
     total = unstop_count + internshala_count
-    duration = datetime.now() - start_cycle
+    duration = datetime.now() - start
 
-    print(f"🎯 TOTAL JOBS: {total} | Cycle Time: {duration}\n")
+    print(f"[SCHEDULER] cycle completed | total_jobs={total} | time={duration}\n")
 
 
 async def start_scheduler():
@@ -45,14 +51,13 @@ async def start_scheduler():
         "interval",
         hours=1,
         max_instances=1,
-        coalesce=True
+        coalesce=True,
     )
 
     scheduler.start()
 
-    print("🔥 Scheduler started (1h interval)")
+    print("[SCHEDULER] started | interval=1 hour")
 
-    # 🔥 run once immediately
     await automation_cycle()
 
     while True:
@@ -63,4 +68,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(start_scheduler())
     except KeyboardInterrupt:
-        print("\n🛑 Scheduler stopped")
+        print("\n[SCHEDULER] stopped")
