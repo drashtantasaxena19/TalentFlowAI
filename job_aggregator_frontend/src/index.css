@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Inter, system-ui, Arial, sans-serif;
+    background: #020617;
+    color: white;
+}
+
+html,
+body {
+    overflow-x: hidden;
+}
+
+#root {
+    overflow-x: hidden;
+}
+
+/* Website theme scrollbar only */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #06b6d4, #7c3aed);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #22d3ee, #a855f7);
+}
+
+/* Firefox */
+html {
+    scrollbar-width: thin;
+    scrollbar-color: #06b6d4 #020617;
+}
+
+.input-style {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    background: #020617;
+    border: 1px solid #334155;
+    color: white;
+    outline: none;
+    transition: 0.2s ease;
+}
+
+.input-style:focus {
+    border-color: #22d3ee;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.15);
+}

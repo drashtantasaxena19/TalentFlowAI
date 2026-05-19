@@ -1,0 +1,40 @@
+job_aggregator_ai/
+│
+├── src/
+│   ├── ai/                  # KEEP
+│   ├── api/                 # EXPAND
+│   │   ├── routes.py
+│   │   ├── auth_routes.py
+│   │   ├── candidate_routes.py
+│   │   ├── employer_routes.py
+│   │   ├── admin_routes.py
+│   │   ├── subscription_routes.py
+│   │   └── payment_routes.py
+│   │
+│   ├── engine/              # KEEP
+│   ├── models/              # EXPAND
+│   │   ├── user_model.py
+│   │   ├── job_model.py
+│   │   ├── company_model.py
+│   │   ├── application_model.py
+│   │   ├── subscription_model.py
+│   │   └── payment_model.py
+│   │
+│   ├── services/            # EXPAND
+│   │   ├── user_service.py
+│   │   ├── job_services.py
+│   │   ├── auth_service.py
+│   │   ├── employer_service.py
+│   │   ├── admin_service.py
+│   │   ├── subscription_service.py
+│   │   └── payment_service.py
+│   │
+│   ├── middleware/          # NEW
+│   │   ├── auth_middleware.py
+│   │   └── role_middleware.py
+│   │
+│   └── utils/               # KEEP
+│
+├── uploads/
+├── main.py
+└── .env

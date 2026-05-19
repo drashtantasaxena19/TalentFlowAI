@@ -1,0 +1,30 @@
+2026/04/21
+
+
+pdfplumber:-
+		It used to access pdf file.
+python-docx:-
+		It used to access docx file.
+
+
+
+2026/04/22
+
+BERT Model:-
+		BERT (Bidirectional Encoder Representations from Transformers) is a machine learning model 		designed for natural language processing tasks, focusing on understanding the context of 		text.
+
+
+all-MiniLM-L6-v2 :-
+		     👉 it's a pre-trained AI model.
+		     👉 Which is used to convert text in vector(numbers).
+		     👉 Helps to match the text in numeric form.
+
+			"Python Developer job"
+       				 ↓
+			[0.23, -0.11, 0.78, ...]  (vector)
+
+
+
+
+
+

@@ -1,0 +1,104 @@
+frontend/
+│
+├── public/
+│   └── favicon.png
+│
+├── src/
+│   ├── assets/
+│   │   ├── brand/
+│   │   │   ├── logo-full.png
+│   │   │   ├── logo-icon.png
+│   │   │   └── splash-logo.png
+│   │   ├── auth/
+│   │   ├── dashboard/
+│   │   └── icons/
+│   │
+│   ├── components/
+│   │   ├── common/
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── Footer.jsx
+│   │   │   ├── Loader.jsx
+│   │   │   ├── ProtectedRoute.jsx
+│   │   │   └── RoleSelector.jsx
+│   │   │
+│   │   ├── candidate/
+│   │   │   ├── CandidateSidebar.jsx
+│   │   │   ├── JobCard.jsx
+│   │   │   ├── ResumeCard.jsx
+│   │   │   └── ProfileStrength.jsx
+│   │   │
+│   │   ├── employer/
+│   │   │   ├── EmployerSidebar.jsx
+│   │   │   ├── JobPostForm.jsx
+│   │   │   ├── ApplicantCard.jsx
+│   │   │   └── CandidateRankCard.jsx
+│   │   │
+│   │   └── admin/
+│   │       ├── AdminSidebar.jsx
+│   │       ├── StatsCard.jsx
+│   │       └── UserManagementTable.jsx
+│   │
+│   ├── pages/
+│   │   ├── public/
+│   │   │   ├── Landing.jsx
+│   │   │   ├── Login.jsx
+│   │   │   └── Signup.jsx
+│   │   │
+│   │   ├── candidate/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── CompleteProfile.jsx
+│   │   │   ├── ResumeUpload.jsx
+│   │   │   ├── ProfileAnalysis.jsx
+│   │   │   ├── RecommendedJobs.jsx
+│   │   │   ├── SavedJobs.jsx
+│   │   │   ├── UpdateProfile.jsx
+│   │   │   └── SubscriptionPlans.jsx
+│   │   │
+│   │   ├── employer/
+│   │   │   ├── EmployerDashboard.jsx
+│   │   │   ├── CompanyProfile.jsx
+│   │   │   ├── PostJob.jsx
+│   │   │   ├── ManageJobs.jsx
+│   │   │   ├── Applicants.jsx
+│   │   │   └── CandidateRanking.jsx
+│   │   │
+│   │   └── admin/
+│   │       ├── AdminDashboard.jsx
+│   │       ├── ManageUsers.jsx
+│   │       ├── ManageCompanies.jsx
+│   │       ├── ManageJobs.jsx
+│   │       └── Payments.jsx
+│   │
+│   ├── layouts/
+│   │   ├── PublicLayout.jsx
+│   │   ├── CandidateLayout.jsx
+│   │   ├── EmployerLayout.jsx
+│   │   └── AdminLayout.jsx
+│   │
+│   ├── routes/
+│   │   └── AppRoutes.jsx
+│   │
+│   ├── context/
+│   │   └── AuthContext.jsx
+│   │
+│   ├── services/
+│   │   ├── api.js
+│   │   ├── authApi.js
+│   │   ├── profileApi.js
+│   │   ├── jobsApi.js
+│   │   ├── employerApi.js
+│   │   ├── adminApi.js
+│   │   ├── subscriptionApi.js
+│   │   └── paymentApi.js
+│   │
+│   ├── hooks/
+│   │   └── useAuth.js
+│   │
+│   ├── utils/
+│   │   └── constants.js
+│   │
+│   ├── App.jsx
+│   ├── main.jsx
+│   └── index.css
+│
+└── package.json
