@@ -8,15 +8,10 @@ import {
   saveJob,
   getSavedJobs,
   removeSavedJob,
-  startJobsPrefetch,
-  getPrefetchJobsResult,
-  clearPrefetchJobs,
   searchCandidateJobs,
   getMyApplications,
 } from "../../services/jobsApi";
 import { getCurrentSubscription } from "../../services/subscriptionApi";
-
-const JOB_CACHE_KEY = "talentflow_recommended_jobs_cache";
 
 export default function RecommendedJobs() {
   const { user } = useAuth();
@@ -25,19 +20,13 @@ export default function RecommendedJobs() {
   const [savedJobs, setSavedJobs] = useState([]);
   const [appliedJobs, setAppliedJobs] = useState([]);
 
-  const [detectedRole, setDetectedRole] = useState("");
   const [subscription, setSubscription] = useState(null);
-  const [upgradeMessage, setUpgradeMessage] = useState("");
-  const [status, setStatus] = useState("loading");
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState("completed");
+  const [loading, setLoading] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
-
-  const getUserCacheKey = () => {
-    return user?.email ? `${JOB_CACHE_KEY}_${user.email}` : JOB_CACHE_KEY;
-  };
 
   const normalizeLink = (value) => {
     const link = String(value || "").trim();
@@ -85,25 +74,6 @@ export default function RecommendedJobs() {
         (currentLink && appLink && currentLink === appLink)
       );
     });
-  };
-
-  const extractDetectedRole = (rawRole) => {
-    if (!rawRole) return "";
-    if (typeof rawRole === "string") return rawRole;
-
-    if (typeof rawRole === "object") {
-      return (
-        rawRole.target_role ||
-        rawRole.role ||
-        rawRole.detected_role ||
-        rawRole.name ||
-        rawRole.title ||
-        rawRole.label ||
-        ""
-      );
-    }
-
-    return "";
   };
 
   const extractMatchScore = (job) => {
@@ -182,41 +152,6 @@ export default function RecommendedJobs() {
     };
   };
 
-  const formatJobsResponse = (response) => {
-    return {
-      jobs: (response.jobs || []).map(normalizeJob),
-      detectedRole: extractDetectedRole(response.detected_role),
-      subscription: response.subscription || null,
-      upgradeMessage: response.upgradeMessage || "",
-      cachedAt: Date.now(),
-    };
-  };
-
-  const saveToCache = (data) => {
-    sessionStorage.setItem(getUserCacheKey(), JSON.stringify(data));
-  };
-
-  const loadFromCache = () => {
-    try {
-      const cached = sessionStorage.getItem(getUserCacheKey());
-      if (!cached) return false;
-
-      const parsed = JSON.parse(cached);
-
-      setJobs(parsed.jobs || []);
-      setDetectedRole(extractDetectedRole(parsed.detectedRole));
-      setSubscription(parsed.subscription || null);
-      setUpgradeMessage(parsed.upgradeMessage || "");
-      setStatus("completed");
-      setLoading(false);
-
-      return true;
-    } catch {
-      sessionStorage.removeItem(getUserCacheKey());
-      return false;
-    }
-  };
-
   const isJobSaved = (job) => {
     const currentLink = getJobLink(job);
     if (!currentLink || currentLink === "#") return false;
@@ -263,55 +198,24 @@ export default function RecommendedJobs() {
     }
   };
 
-  const loadPrefetchedJobs = async ({ force = false } = {}) => {
+  const loadInitialData = async () => {
     if (!user?.email) return;
-
-    if (!force) {
-      const hasCache = loadFromCache();
-
-      if (hasCache) {
-        await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
-        return;
-      }
-    }
 
     try {
       setLoading(true);
-      setSearchMode(false);
+      setStatus("completed");
 
-      const result = await getPrefetchJobsResult();
+      await Promise.all([
+        loadSavedJobs(),
+        loadAppliedJobs(),
+        loadSubscription(),
+      ]);
 
-      if (result.status === "completed") {
-        const formattedData = formatJobsResponse(result);
-
-        setJobs(formattedData.jobs);
-        setDetectedRole(formattedData.detectedRole);
-        setSubscription(formattedData.subscription);
-        setUpgradeMessage(formattedData.upgradeMessage);
-        setStatus("completed");
-
-        saveToCache(formattedData);
-        return;
-      }
-
-      if (result.status === "queued" || result.status === "processing") {
-        setStatus(result.status);
-        setJobs([]);
-        return;
-      }
-
-      const queued = await startJobsPrefetch();
-
-      setStatus(queued.status || "queued");
       setJobs([]);
     } catch (error) {
-      console.error("Prefetched Jobs Error:", error);
-      alert(error.response?.data?.detail || "Could not load recommended jobs");
-      setStatus("failed");
-      setJobs([]);
+      console.error("Recommended Jobs Initial Load Error:", error);
     } finally {
       setLoading(false);
-      await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
     }
   };
 
@@ -342,7 +246,8 @@ export default function RecommendedJobs() {
   const handleClearSearch = async () => {
     setSearchQuery("");
     setSearchMode(false);
-    await loadPrefetchedJobs({ force: false });
+    setJobs([]);
+    await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
   };
 
   const handleSaveJob = async (job) => {
@@ -374,43 +279,16 @@ export default function RecommendedJobs() {
   };
 
   const handleRefreshJobs = async () => {
-    try {
-      setLoading(true);
-      setSearchQuery("");
-      setSearchMode(false);
-
-      sessionStorage.removeItem(getUserCacheKey());
-      localStorage.removeItem(getUserCacheKey());
-
-      await clearPrefetchJobs();
-      await startJobsPrefetch();
-
-      setJobs([]);
-      setStatus("queued");
-    } catch (error) {
-      alert(error.response?.data?.detail || "Could not refresh jobs");
-    } finally {
-      setLoading(false);
-      await loadAppliedJobs();
-    }
+    setSearchQuery("");
+    setSearchMode(false);
+    setJobs([]);
+    await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
+    alert("AI prefetch is temporarily disabled on the production server. Use search to view jobs.");
   };
 
   useEffect(() => {
-    if (user?.email) {
-      loadPrefetchedJobs();
-    }
+    loadInitialData();
   }, [user?.email]);
-
-  useEffect(() => {
-    if (!user?.email) return;
-    if (status !== "queued" && status !== "processing") return;
-
-    const interval = setInterval(() => {
-      loadPrefetchedJobs({ force: true });
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [user?.email, status]);
 
   const currentPlan =
     subscription?.plan ||
@@ -429,7 +307,7 @@ export default function RecommendedJobs() {
       <section className="mb-8">
         <div className="rounded-[2rem] border border-violet-500/20 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 p-6 md:p-8">
           <p className="text-violet-300 font-semibold uppercase tracking-wider">
-            Smart Job Matching
+            Smart Job Search
           </p>
 
           <h1 className="text-3xl md:text-5xl font-extrabold mt-3">
@@ -440,14 +318,8 @@ export default function RecommendedJobs() {
           </h1>
 
           <p className="text-slate-300 mt-4 max-w-2xl">
-            AI-powered jobs based on your resume, profile, skills, projects, and desired role.
+            Search jobs from your live database. AI prefetch is temporarily disabled on the free production server.
           </p>
-
-          {detectedRole && !searchMode && (
-            <p className="text-violet-300 mt-3 font-semibold">
-              Detected Role: {detectedRole}
-            </p>
-          )}
         </div>
       </section>
 
@@ -505,16 +377,10 @@ export default function RecommendedJobs() {
               <p className="text-slate-400 text-sm">
                 {searchMode
                   ? `Showing database jobs for "${searchQuery}"`
-                  : isPreparing
-                  ? "AI matching is preparing your recommendations in background."
                   : isUnlimited
                   ? "Unlimited premium recommendations enabled."
-                  : `Showing up to ${planLimit} recommendations for your current plan.`}
+                  : `Search jobs manually. Current plan recommendation limit: ${planLimit}.`}
               </p>
-
-              {upgradeMessage && !searchMode && (
-                <p className="text-violet-300 text-sm mt-1">{upgradeMessage}</p>
-              )}
             </div>
           </div>
 
@@ -523,30 +389,25 @@ export default function RecommendedJobs() {
             className="px-6 py-3 rounded-2xl border border-violet-400 text-violet-300 font-bold hover:bg-violet-400 hover:text-slate-950 transition flex items-center gap-2"
           >
             <RefreshCcw size={18} />
-            Refresh AI Jobs
+            Refresh Jobs
           </button>
         </div>
       </section>
 
       {loading ? (
         <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8">
-          <Loader text="Checking prepared recommendations..." />
+          <Loader text="Loading jobs data..." />
         </div>
       ) : isPreparing && !searchMode ? (
         <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8 text-center">
-          <Loader text="AI is preparing your personalized jobs..." />
-          <p className="text-slate-400 mt-4">
-            You can search database jobs above while AI matching prepares.
-          </p>
+          <Loader text="Preparing jobs..." />
         </div>
       ) : jobs.length === 0 ? (
         <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8 text-center">
-          <h2 className="text-2xl font-bold">No jobs found</h2>
+          <h2 className="text-2xl font-bold">No jobs shown yet</h2>
 
           <p className="text-slate-400 mt-2">
-            {searchMode
-              ? "No matching jobs found in database."
-              : "Complete profile, upload resume, and make sure jobs exist in MongoDB jobs collection."}
+            Search jobs by role, company, skills, or location to view database jobs.
           </p>
         </div>
       ) : (

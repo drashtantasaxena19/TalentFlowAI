@@ -17,15 +17,10 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getCandidateProfile } from "../../services/profileApi";
-import {
-  getSavedJobs,
-  startJobsPrefetch,
-  getPrefetchJobsResult,
-} from "../../services/jobsApi";
+import { getSavedJobs } from "../../services/jobsApi";
 import { getCurrentSubscription } from "../../services/subscriptionApi";
 
 const DASHBOARD_CACHE_KEY = "talentflow_candidate_dashboard_cache_queue_v1";
-const JOB_CACHE_KEY = "talentflow_recommended_jobs_cache";
 
 const emptyProfile = {
   fullName: "",
@@ -52,17 +47,12 @@ export default function CandidateDashboard() {
   const [profile, setProfile] = useState(emptyProfile);
   const [savedJobs, setSavedJobs] = useState([]);
   const [subscription, setSubscription] = useState(null);
-  const [recommendedJobsCount, setRecommendedJobsCount] = useState(0);
-  const [prefetchStatus, setPrefetchStatus] = useState("idle");
+  const [recommendedJobsCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const dashboardCacheKey = user?.email
     ? `${DASHBOARD_CACHE_KEY}_${user.email}`
     : DASHBOARD_CACHE_KEY;
-
-  const recommendedCacheKey = user?.email
-    ? `${JOB_CACHE_KEY}_${user.email}`
-    : JOB_CACHE_KEY;
 
   const displayName =
     profile?.fullName?.trim() || user?.name?.trim() || "Candidate";
@@ -151,66 +141,11 @@ export default function CandidateDashboard() {
       setProfile(parsed.profile || emptyProfile);
       setSavedJobs(parsed.savedJobs || []);
       setSubscription(parsed.subscription || null);
-      setRecommendedJobsCount(parsed.recommendedJobsCount || 0);
-      setPrefetchStatus(parsed.prefetchStatus || "idle");
 
       return true;
     } catch (error) {
       sessionStorage.removeItem(dashboardCacheKey);
       return false;
-    }
-  };
-
-  const cachePrefetchedJobs = (result) => {
-    const jobs = result?.jobs || [];
-
-    sessionStorage.setItem(
-      recommendedCacheKey,
-      JSON.stringify({
-        jobs,
-        detectedRole: result?.detected_role || null,
-        subscription: result?.subscription || null,
-        upgradeMessage: result?.upgradeMessage || "",
-        cachedAt: Date.now(),
-      })
-    );
-
-    setRecommendedJobsCount(jobs.length);
-  };
-
-  const startQueueOnly = async () => {
-    if (!user?.email) return;
-
-    try {
-      const result = await getPrefetchJobsResult();
-
-      if (result?.status === "completed") {
-        cachePrefetchedJobs(result);
-        setPrefetchStatus("completed");
-        return;
-      }
-
-      const queued = await startJobsPrefetch();
-      setPrefetchStatus(queued?.status || "queued");
-    } catch (error) {
-      console.error("Prefetch queue start error:", error);
-      setPrefetchStatus("idle");
-    }
-  };
-
-  const checkPrefetchStatusLight = async () => {
-    try {
-      const result = await getPrefetchJobsResult();
-
-      if (result?.status === "completed") {
-        cachePrefetchedJobs(result);
-        setPrefetchStatus("completed");
-        return;
-      }
-
-      setPrefetchStatus(result?.status || "not_started");
-    } catch (error) {
-      console.error("Prefetch status check error:", error);
     }
   };
 
@@ -221,8 +156,6 @@ export default function CandidateDashboard() {
       const hasCache = loadDashboardCache();
 
       if (hasCache) {
-        startQueueOnly();
-        checkPrefetchStatusLight();
         return;
       }
     }
@@ -273,11 +206,7 @@ export default function CandidateDashboard() {
         profile: finalProfile,
         savedJobs: finalSavedJobs,
         subscription: finalSubscription,
-        recommendedJobsCount,
-        prefetchStatus,
       });
-
-      startQueueOnly();
     } catch (error) {
       console.error("Dashboard load error:", error);
     } finally {
@@ -287,25 +216,12 @@ export default function CandidateDashboard() {
 
   const handleRefresh = async () => {
     sessionStorage.removeItem(dashboardCacheKey);
-    sessionStorage.removeItem(recommendedCacheKey);
     await loadDashboard({ force: true });
   };
 
   useEffect(() => {
     loadDashboard();
   }, [user?.email]);
-
-  useEffect(() => {
-    if (!user?.email) return;
-
-    const interval = setInterval(() => {
-      if (prefetchStatus === "queued" || prefetchStatus === "processing") {
-        checkPrefetchStatusLight();
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [user?.email, prefetchStatus]);
 
   const quickActions = [
     {
@@ -333,10 +249,7 @@ export default function CandidateDashboard() {
       title: "Find Jobs",
       path: "/candidate/recommended-jobs",
       icon: Briefcase,
-      text:
-        prefetchStatus === "completed"
-          ? "Recommended jobs are ready."
-          : "AI matching is preparing in background.",
+      text: "Search available jobs from your database.",
     },
   ];
 
@@ -373,7 +286,7 @@ export default function CandidateDashboard() {
   const finalSuggestions =
     aiSuggestions.length > 0
       ? aiSuggestions.slice(0, 5)
-      : ["Your profile looks strong. AI recommendations are ready to explore."];
+      : ["Your profile looks strong. Explore available jobs from recommendations."];
 
   const recentActivity = [
     profileCompletion > 0 && {
@@ -385,10 +298,6 @@ export default function CandidateDashboard() {
       text: `${recommendedJobsCount} recommended job${
         recommendedJobsCount === 1 ? "" : "s"
       } ready`,
-    },
-    (prefetchStatus === "queued" || prefetchStatus === "processing") && {
-      icon: Sparkles,
-      text: "AI recommendation worker is preparing jobs",
     },
     savedJobs.length > 0 && {
       icon: BookmarkCheck,
@@ -409,30 +318,29 @@ export default function CandidateDashboard() {
   return (
     <DashboardLayout role="candidate">
       <section className="mb-10">
-        <div className="rounded-[2rem] border border-slate-800 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 p-6 md:p-8">
+        <div className="rounded-[2rem] border border-violet-500/20 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 p-6 md:p-8">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
             <div>
-              <p className="text-cyan-400 font-semibold uppercase tracking-wider">
+              <p className="text-violet-300 font-semibold uppercase tracking-wider">
                 Welcome Back, {displayName}
               </p>
 
               <h1 className="text-3xl md:text-5xl font-extrabold mt-3 leading-tight">
                 Your Career Growth
                 <br />
-                <span className="bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
                   Dashboard
                 </span>
               </h1>
 
               <p className="text-slate-300 mt-4 max-w-2xl">
-                Dashboard opens fast. AI recommendations run through background
-                worker without blocking other pages.
+                Manage your profile, resume, saved jobs, subscription and career insights.
               </p>
             </div>
 
             <button
               onClick={handleRefresh}
-              className="px-5 py-3 rounded-2xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition flex items-center justify-center gap-2"
+              className="px-5 py-3 rounded-2xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-400 text-slate-950 font-bold hover:scale-[1.01] transition flex items-center justify-center gap-2"
             >
               <RefreshCcw size={18} />
               Refresh
@@ -442,7 +350,7 @@ export default function CandidateDashboard() {
       </section>
 
       {loading ? (
-        <div className="rounded-[2rem] bg-slate-900/70 border border-slate-800 p-8 mb-10">
+        <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8 mb-10">
           <Loader text="Loading dashboard..." />
         </div>
       ) : (
@@ -450,19 +358,13 @@ export default function CandidateDashboard() {
           <ProfileStrength
             profileCompletion={profileCompletion}
             resumeScore={resumeScore}
-            recommendedJobsCount={
-              recommendedJobsCount > 0
-                ? recommendedJobsCount
-                : prefetchStatus === "completed"
-                ? 0
-                : "Preparing"
-            }
+            recommendedJobsCount="Search"
             skillGrowth={skillGrowth}
           />
 
           <section className="grid md:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
-            <div className="rounded-3xl bg-slate-900/70 border border-slate-800 p-6">
-              <BookmarkCheck className="text-cyan-400 mb-4" size={34} />
+            <div className="rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6">
+              <BookmarkCheck className="text-violet-300 mb-4" size={34} />
               <p className="text-slate-400">Saved Jobs</p>
               <h2 className="text-4xl font-extrabold mt-2">
                 {savedJobs.length}
@@ -474,8 +376,8 @@ export default function CandidateDashboard() {
               </p>
             </div>
 
-            <div className="rounded-3xl bg-slate-900/70 border border-slate-800 p-6">
-              <Crown className="text-yellow-400 mb-4" size={34} />
+            <div className="rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6">
+              <Crown className="text-fuchsia-300 mb-4" size={34} />
               <p className="text-slate-400">Current Plan</p>
               <h2 className="text-4xl font-extrabold mt-2 capitalize">
                 {currentPlan}
@@ -489,24 +391,17 @@ export default function CandidateDashboard() {
               </p>
             </div>
 
-            <div className="rounded-3xl bg-slate-900/70 border border-slate-800 p-6">
-              <Brain className="text-purple-400 mb-4" size={34} />
+            <div className="rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6">
+              <Brain className="text-cyan-300 mb-4" size={34} />
               <p className="text-slate-400">AI Job Matching</p>
-              <h2 className="text-4xl font-extrabold mt-2 capitalize">
-                {prefetchStatus === "completed"
-                  ? "Ready"
-                  : prefetchStatus === "queued" ||
-                    prefetchStatus === "processing"
-                  ? "Running"
-                  : "Queued"}
-              </h2>
+              <h2 className="text-4xl font-extrabold mt-2">Manual</h2>
               <p className="text-slate-300 mt-2">
-                Runs in worker, not in page load
+                Search jobs from database
               </p>
             </div>
 
-            <div className="rounded-3xl bg-slate-900/70 border border-slate-800 p-6">
-              <Code2 className="text-cyan-400 mb-4" size={34} />
+            <div className="rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6">
+              <Code2 className="text-violet-300 mb-4" size={34} />
               <p className="text-slate-400">Skills Added</p>
               <h2 className="text-4xl font-extrabold mt-2">{skillCount}</h2>
               <p className="text-slate-300 mt-2">Used for job matching</p>
@@ -524,9 +419,9 @@ export default function CandidateDashboard() {
                   <Link
                     key={action.title}
                     to={action.path}
-                    className="rounded-3xl bg-slate-900/70 border border-slate-800 p-6 hover:border-cyan-400/40 transition group"
+                    className="rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6 hover:border-violet-400/50 transition group"
                   >
-                    <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-5 group-hover:scale-110 transition">
+                    <div className="w-14 h-14 rounded-2xl bg-violet-500/10 text-violet-300 flex items-center justify-center mb-5 group-hover:scale-110 transition">
                       <Icon size={28} />
                     </div>
 
@@ -540,9 +435,9 @@ export default function CandidateDashboard() {
           </section>
 
           <section className="grid lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 rounded-3xl bg-slate-900/70 border border-slate-800 p-6">
+            <div className="lg:col-span-2 rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6">
               <h2 className="text-2xl font-extrabold mb-4 flex items-center gap-2">
-                <Brain className="text-cyan-400" size={24} />
+                <Brain className="text-violet-300" size={24} />
                 AI Suggestions
               </h2>
 
@@ -554,12 +449,12 @@ export default function CandidateDashboard() {
                   >
                     {suggestion.toLowerCase().includes("upgrade") ? (
                       <Crown
-                        className="text-yellow-400 shrink-0 mt-0.5"
+                        className="text-fuchsia-300 shrink-0 mt-0.5"
                         size={19}
                       />
                     ) : (
                       <Sparkles
-                        className="text-cyan-400 shrink-0 mt-0.5"
+                        className="text-violet-300 shrink-0 mt-0.5"
                         size={19}
                       />
                     )}
@@ -570,9 +465,9 @@ export default function CandidateDashboard() {
               </ul>
             </div>
 
-            <div className="rounded-3xl bg-slate-900/70 border border-slate-800 p-6">
+            <div className="rounded-3xl bg-slate-900/70 border border-violet-500/20 p-6">
               <h2 className="text-2xl font-extrabold mb-4 flex items-center gap-2">
-                <Star className="text-cyan-400" size={24} />
+                <Star className="text-violet-300" size={24} />
                 Recent Activity
               </h2>
 
@@ -586,7 +481,7 @@ export default function CandidateDashboard() {
                         key={`${activity.text}-${index}`}
                         className="border-b border-slate-800 last:border-b-0 pb-3 flex items-center gap-2"
                       >
-                        <Icon size={18} className="text-cyan-400 shrink-0" />
+                        <Icon size={18} className="text-violet-300 shrink-0" />
                         <span>{activity.text}</span>
                       </li>
                     );
@@ -602,10 +497,10 @@ export default function CandidateDashboard() {
 
           {currentPlan === "free" && (
             <section className="mt-8">
-              <div className="rounded-[2rem] border border-yellow-400/20 bg-yellow-500/10 p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="rounded-[2rem] border border-fuchsia-400/20 bg-fuchsia-500/10 p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-extrabold flex items-center gap-2">
-                    <Crown className="text-yellow-400" size={26} />
+                    <Crown className="text-fuchsia-300" size={26} />
                     Unlock Pro Career Tools
                   </h2>
 
@@ -618,7 +513,7 @@ export default function CandidateDashboard() {
 
                 <Link
                   to="/candidate/subscription"
-                  className="px-6 py-3 rounded-2xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition text-center"
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-400 text-slate-950 font-bold hover:scale-[1.01] transition text-center"
                 >
                   View Plans
                 </Link>
