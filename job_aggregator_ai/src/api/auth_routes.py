@@ -41,8 +41,8 @@ def set_auth_cookie(response: Response, token: str):
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=COOKIE_MAX_AGE,
         path="/",
     )
@@ -52,7 +52,10 @@ def clear_auth_cookie(response: Response):
     response.delete_cookie(
         key=COOKIE_NAME,
         path="/",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
     )
+
 
 def public_user(user: dict):
     return {
