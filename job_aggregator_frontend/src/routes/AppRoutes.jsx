@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import Landing from "../pages/public/Landing";
+import PublicJobs from "../pages/public/PublicJobs";
 import Signup from "../pages/public/Signup";
 import Login from "../pages/public/Login";
 import ProtectedRoute from "../components/common/ProtectedRoute";
@@ -25,6 +26,7 @@ import ManageJobs from "../pages/employer/ManageJobs";
 import Applicants from "../pages/employer/Applicants";
 import CandidateRanking from "../pages/employer/CandidateRanking";
 import EmployerSubscriptionPlans from "../pages/employer/EmployeeSubscriptionPlans";
+import AICandidateAnalyzer from "../pages/employer/AICandidateAnalyzer";
 
 // Admin Pages
 import AdminDashboard from "../pages/admin/AdminDashboard";
@@ -45,8 +47,10 @@ export default function AppRoutes() {
         <Routes>
             {/* Public */}
             <Route path="/" element={<Landing />} />
+            <Route path="/jobs" element={<PublicJobs />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Login />} />
+
 
             {/* Candidate */}
             <Route path="/candidate/dashboard" element={protect("candidate", <CandidateDashboard />)} />
@@ -64,6 +68,7 @@ export default function AppRoutes() {
             <Route path="/employer/dashboard" element={protect("employer", <EmployerDashboard />)} />
             <Route path="/employer/company-profile" element={protect("employer", <CompanyProfile />)} />
             <Route path="/employer/post-job" element={protect("employer", <PostJob />)} />
+            <Route path="/employer/candidate-analyze" element={protect("employer", <AICandidateAnalyzer />)} />
             <Route path="/employer/manage-jobs" element={protect("employer", <ManageJobs />)} />
             <Route path="/employer/applicants" element={protect("employer", <Applicants />)} />
             <Route path="/employer/candidate-ranking" element={protect("employer", <CandidateRanking />)} />

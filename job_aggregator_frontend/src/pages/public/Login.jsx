@@ -143,7 +143,6 @@ export default function Login() {
                                         Login Securely
                                     </button>
                                 </form>
-
                                 {/* Signup Redirect */}
                                 <p className="text-center text-slate-400 mt-5 text-sm">
                                     Don&apos;t have an account?{" "}

@@ -5,8 +5,13 @@ from typing import Dict, Any, List
 import docx
 import pdfplumber
 
-from src.ai.ai_resume_parser import parse_resume_ai
+from src.ai.ai_resume_parser import (
+    parse_resume_ai,
+)
 
+from src.ai.semantic_validator import (
+    filter_semantic_skills,
+)
 
 HEADINGS = [
     "CAREER OBJECTIVE",
@@ -341,7 +346,10 @@ def extract_education_details(raw_text: str) -> Dict[str, str]:
         if any(word in lower for word in ["university", "aktu", "affiliated"]):
             university = line.strip()
 
-        if any(word in lower for word in ["college", "institute", "school", "academy", "iimt"]):
+        if any(
+            word in lower
+            for word in ["college", "institute", "school", "academy", "iimt"]
+        ):
             college = line.strip()
 
     return {
@@ -356,7 +364,13 @@ def extract_education_details(raw_text: str) -> Dict[str, str]:
 def extract_experience(raw_text: str) -> str:
     lines = get_first_available_section(
         raw_text,
-        ["EXPERIENCE", "WORK EXPERIENCE", "PROFESSIONAL EXPERIENCE", "INTERNSHIP", "INTERNSHIPS"],
+        [
+            "EXPERIENCE",
+            "WORK EXPERIENCE",
+            "PROFESSIONAL EXPERIENCE",
+            "INTERNSHIP",
+            "INTERNSHIPS",
+        ],
     )
     return "\n".join(lines) if lines else ""
 
@@ -375,7 +389,9 @@ def extract_experience_years(text: str) -> float:
             except Exception:
                 return 0
 
-    if any(word in text.lower() for word in ["fresher", "student", "internship", "intern"]):
+    if any(
+        word in text.lower() for word in ["fresher", "student", "internship", "intern"]
+    ):
         return 0
 
     return 0
@@ -517,10 +533,31 @@ def categorize_skills(skills: List[str]) -> Dict[str, List[str]]:
 def detect_role_from_skills(skills: List[str], text: str) -> str:
     combined = (" ".join(skills) + " " + text).lower()
 
-    if any(x in combined for x in ["power bi", "tableau", "excel", "sql", "data analysis", "pandas", "dashboard"]):
+    if any(
+        x in combined
+        for x in [
+            "power bi",
+            "tableau",
+            "excel",
+            "sql",
+            "data analysis",
+            "pandas",
+            "dashboard",
+        ]
+    ):
         return "Data Analyst"
 
-    if any(x in combined for x in ["machine learning", "deep learning", "tensorflow", "pytorch", "scikit-learn", "nlp"]):
+    if any(
+        x in combined
+        for x in [
+            "machine learning",
+            "deep learning",
+            "tensorflow",
+            "pytorch",
+            "scikit-learn",
+            "nlp",
+        ]
+    ):
         return "AI/ML Engineer"
 
     if any(x in combined for x in ["react", "node", "mongodb", "express"]):
@@ -556,7 +593,9 @@ def extract_text(file_path: str) -> str:
 
         for table in document.tables:
             for row in table.rows:
-                row_text = " ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                row_text = " ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
                 if row_text:
                     table_text.append(row_text)
 
@@ -639,7 +678,11 @@ def as_list(value: Any) -> List[str]:
     return sorted(set(cleaned))
 
 
-def merge_ai_with_fallback(ai_data: Dict[str, Any], fallback_data: Dict[str, Any]) -> Dict[str, Any]:
+def merge_ai_with_fallback(
+    ai_data: Dict[str, Any],
+    fallback_data: Dict[str, Any],
+) -> Dict[str, Any]:
+
     final_data = fallback_data.copy()
 
     for key, value in ai_data.items():
@@ -678,7 +721,9 @@ def merge_ai_with_fallback(ai_data: Dict[str, Any], fallback_data: Dict[str, Any
     ]
 
     for field in list_fields:
-        final_data[field] = sorted(set(as_list(fallback_data.get(field)) + as_list(ai_data.get(field))))
+        final_data[field] = sorted(
+            set(as_list(fallback_data.get(field)) + as_list(ai_data.get(field)))
+        )
 
     all_skills = []
 
@@ -695,7 +740,25 @@ def merge_ai_with_fallback(ai_data: Dict[str, Any], fallback_data: Dict[str, Any
 
     final_data["skills"] = sorted(set(all_skills))
 
+    role = final_data.get(
+        "role",
+        "",
+    )
+
+    semantic_result = filter_semantic_skills(
+        role=role,
+        skills=final_data.get(
+            "skills",
+            [],
+        ),
+    )
+
+    final_data["skills"] = semantic_result["valid"]
+
+    final_data["removedSkills"] = semantic_result["removed"]
+
     final_data["resume_text"] = fallback_data["resume_text"]
+
     final_data["source"] = f"{ai_data.get('source', 'AI')}+fallback"
 
     return final_data
@@ -705,7 +768,9 @@ def parse_resume(file_path: str) -> Dict[str, Any]:
     raw_text = extract_text(file_path)
 
     if not raw_text or not raw_text.strip():
-        raise ValueError("Empty resume or unsupported scanned PDF. Please upload a text-based PDF/DOCX.")
+        raise ValueError(
+            "Empty resume or unsupported scanned PDF. Please upload a text-based PDF/DOCX."
+        )
 
     clean = clean_text(raw_text)
 

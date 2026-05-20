@@ -1,36 +1,48 @@
+import json
+import re
 from typing import Optional
 
 from src.ai.resume_parser import parse_resume
 from src.utils.db_handler import db_handler
 
+from src.ai.embeddings import (
+    get_embedding,
+    get_similarity,
+)
+
 from src.ai.role_detector import detect_role
 from src.ai.skill_engine import extract_skills
-from src.ai.scorer import calculate_score, clamp_score
-from src.ai.ai_engine import ai_match_analysis, USE_AI
+
+from src.ai.scorer import (
+    clamp_score,
+    calculate_match_score,
+    get_recommendation_label,
+)
 
 
-# ✅ Lazy-loaded embedding functions
-# This prevents torch / sentence-transformers / HF model from loading on app startup.
-_get_embedding = None
-_get_embeddings = None
-_get_similarity = None
+def safe_json(text: str):
+    try:
+        return json.loads(text)
 
+    except Exception:
+        pass
 
-def load_embedding_functions():
-    global _get_embedding, _get_embeddings, _get_similarity
-
-    if _get_embedding is None or _get_embeddings is None or _get_similarity is None:
-        from src.ai.embeddings import (
-            get_embedding,
-            get_embeddings,
-            get_similarity,
+    try:
+        match = re.search(
+            r"\{.*\}",
+            text,
+            re.DOTALL,
         )
 
-        _get_embedding = get_embedding
-        _get_embeddings = get_embeddings
-        _get_similarity = get_similarity
+        if match:
+            return json.loads(
+                match.group(0)
+            )
 
-    return _get_embedding, _get_embeddings, _get_similarity
+    except Exception:
+        pass
+
+    return None
 
 
 def normalize_skill(skill: str) -> str:
@@ -43,9 +55,13 @@ def unique_list(items: list) -> list:
 
     for item in items:
         text = str(item or "").strip()
+
+        if not text:
+            continue
+
         key = text.lower()
 
-        if text and key not in seen:
+        if key not in seen:
             output.append(text)
             seen.add(key)
 
@@ -63,16 +79,148 @@ def build_text(job: dict) -> str:
         f"{job.get('company') or ''} "
         f"{job.get('location') or ''} "
         f"{job.get('experience') or ''} "
+        f"{job.get('experienceLevel') or ''} "
+        f"{job.get('experienceYears') or ''} "
         f"{skills} "
-        f"{(job.get('description') or '')[:1500]}"
+        f"{job.get('jobType') or job.get('job_type') or ''} "
+        f"{job.get('workMode') or job.get('work_mode') or ''} "
+        f"{job.get('summary') or ''} "
+        f"{(job.get('description') or '')[:1800]}"
     ).strip()
+
+
+def get_required_skills(job: dict, job_text: str) -> list:
+    skills = job.get("skills") or []
+
+    if isinstance(skills, str):
+        skills = [
+            x.strip()
+            for x in skills.split(",")
+            if x.strip()
+        ]
+
+    skills = unique_list(skills)
+
+    if skills:
+        return skills
+
+    return unique_list(
+        extract_skills(job_text)
+    )
+
+
+def smart_skill_match(
+    user_skills: list,
+    required_skills: list,
+):
+    user_keys = {
+        normalize_skill(skill): skill
+        for skill in user_skills
+    }
+
+    matched = []
+
+    for req in required_skills:
+        req_key = normalize_skill(req)
+
+        if not req_key:
+            continue
+
+        direct = req_key in user_keys
+
+        partial = any(
+            req_key in normalize_skill(user_skill)
+            or normalize_skill(user_skill) in req_key
+            for user_skill in user_skills
+        )
+
+        if direct or partial:
+            matched.append(req)
+
+    matched_keys = {
+        normalize_skill(skill)
+        for skill in matched
+    }
+
+    missing = [
+        skill
+        for skill in required_skills
+        if normalize_skill(skill)
+        not in matched_keys
+    ]
+
+    return (
+        unique_list(matched),
+        unique_list(missing),
+    )
+
+
+def build_weightage(
+    skills: list,
+    job_text: str,
+    matched: bool = True,
+):
+    weightage = []
+
+    lower_text = job_text.lower()
+
+    for skill in skills:
+        skill_key = normalize_skill(skill)
+
+        if not skill_key:
+            continue
+
+        importance = 60
+
+        if skill_key in lower_text[:300]:
+            importance += 15
+
+        if lower_text.count(skill_key) >= 2:
+            importance += 10
+
+        if matched:
+            reason = (
+                f"{skill} is found in the candidate profile/resume and matches this job requirement."
+            )
+        else:
+            reason = (
+                f"{skill} appears important for this job but is not clearly found in the candidate profile/resume."
+            )
+
+        weightage.append({
+            "skill": skill,
+            "weightage": clamp_score(
+                importance
+            ),
+            "reason": reason,
+        })
+
+    return weightage
+
+
+def extract_candidate_years(parsed: dict):
+    value = (
+        parsed.get("experienceYears")
+        or parsed.get(
+            "total_experience_years"
+        )
+    )
+
+    try:
+        return float(value or 0)
+
+    except Exception:
+        return 0
 
 
 def decide_limit(results: list) -> int:
     if not results:
         return 10
 
-    max_score = max(float(r.get("score", 0)) for r in results)
+    max_score = max(
+        float(r.get("score", 0))
+        for r in results
+    )
 
     if max_score >= 80:
         return 8
@@ -83,182 +231,105 @@ def decide_limit(results: list) -> int:
     return 20
 
 
-def smart_skill_match(user_skills: list, required_skills: list, job_text: str):
-    user_skill_map = {normalize_skill(skill): skill for skill in user_skills}
-    matched = []
-
-    for req in required_skills:
-        req_key = normalize_skill(req)
-
-        if not req_key:
-            continue
-
-        direct_match = req_key in user_skill_map
-
-        partial_match = any(
-            req_key in normalize_skill(user_skill)
-            or normalize_skill(user_skill) in req_key
-            for user_skill in user_skills
-        )
-
-        text_match = (
-            req_key in job_text.lower()
-            and req_key in " ".join(user_skill_map.keys())
-        )
-
-        if direct_match or partial_match or text_match:
-            matched.append(req)
-
-    missing = [
-        skill
-        for skill in required_skills
-        if normalize_skill(skill) not in [normalize_skill(x) for x in matched]
-    ]
-
-    return unique_list(matched), unique_list(missing)
-
-
-def build_weightage(skills: list, job_text: str, matched: bool = True) -> list:
-    weightage = []
-
-    for skill in skills:
-        skill_key = normalize_skill(skill)
-
-        if not skill_key:
-            continue
-
-        importance = 65
-
-        title_boost = skill_key in job_text[:250].lower()
-        repeated_boost = job_text.lower().count(skill_key) >= 2
-
-        if title_boost:
-            importance += 15
-
-        if repeated_boost:
-            importance += 10
-
-        if matched:
-            reason = (
-                f"{skill} is present in candidate profile/resume "
-                "and relevant to this job."
-            )
-        else:
-            reason = (
-                f"{skill} appears important for this job but is not clearly "
-                "found in candidate profile/resume."
-            )
-
-        weightage.append(
-            {
-                "skill": skill,
-                "weightage": clamp_score(importance),
-                "reason": reason,
-            }
-        )
-
-    return weightage
-
-
-def fallback_match(user_text: str, user_skills: list, job_text: str, emb_score: float):
-    required_skills = extract_skills(job_text)
-    required_skills = unique_list(required_skills)
-
-    matched_skills, missing_skills = smart_skill_match(
-        user_skills=user_skills,
-        required_skills=required_skills,
-        job_text=job_text,
-    )
-
-    embedding_percentage = clamp_score(emb_score * 100)
-
-    if required_skills:
-        skill_score = (len(matched_skills) / len(required_skills)) * 100
-    else:
-        skill_score = embedding_percentage
-
-    final_match_score = clamp_score(
-        embedding_percentage * 0.55 + skill_score * 0.45
-    )
-
-    return {
-        "is_fit": final_match_score >= 55,
-        "match_score": final_match_score,
-        "required_skills": required_skills,
-        "matched_skills": matched_skills,
-        "missing_skills": missing_skills,
-        "matchedSkillsWeightage": build_weightage(
-            matched_skills, job_text, matched=True
-        ),
-        "missingSkillsWeightage": build_weightage(
-            missing_skills, job_text, matched=False
-        ),
-        "reason": (
-            "Matched using semantic embedding similarity and skill overlap fallback. "
-            "AI provider was unavailable or skipped for this job."
-        ),
-        "learning_suggestions": missing_skills[:5],
-        "career_advice": (
-            "Improve the missing skills and add project evidence in your resume "
-            "to increase job match score."
-        ),
-        "source": "fallback",
-    }
-
-
-def normalize_ai_result(
-    ai_result: dict,
+def analyze_job_match(
+    parsed: dict,
+    user_text: str,
     user_skills: list,
-    job_text: str,
-    emb_score: float,
+    job: dict,
 ):
-    if not ai_result:
-        return fallback_match("", user_skills, job_text, emb_score)
+    job_text = build_text(job)
 
-    required_skills = unique_list(
-        ai_result.get("required_skills", []) or extract_skills(job_text)
+    if not job_text:
+        return None
+
+    required_skills = get_required_skills(
+        job,
+        job_text,
     )
 
-    matched_skills = unique_list(ai_result.get("matched_skills", []))
-    missing_skills = unique_list(ai_result.get("missing_skills", []))
-
-    if not matched_skills and required_skills:
-        matched_skills, missing_skills = smart_skill_match(
+    matched_skills, missing_skills = (
+        smart_skill_match(
             user_skills=user_skills,
             required_skills=required_skills,
-            job_text=job_text,
         )
+    )
 
-    match_score = ai_result.get("match_score")
+    user_embedding = get_embedding(
+        user_text
+    )
 
-    if match_score is None:
-        match_score = calculate_score(emb_score, None)
+    job_embedding = get_embedding(
+        job_text
+    )
+
+    emb_score = get_similarity(
+        user_embedding,
+        job_embedding,
+    )
+
+    score_result = calculate_match_score(
+        embedding_score=emb_score,
+        matched_skills=matched_skills,
+        required_skills=required_skills,
+        job=job,
+        candidate_years=extract_candidate_years(
+            parsed
+        ),
+        candidate_profile=parsed,
+    )
+
+    score = score_result["score"]
 
     return {
-        "is_fit": bool(ai_result.get("is_fit", clamp_score(match_score) >= 55)),
-        "match_score": clamp_score(match_score),
-        "required_skills": required_skills,
-        "matched_skills": matched_skills,
-        "missing_skills": missing_skills,
-        "matchedSkillsWeightage": (
-            ai_result.get("matchedSkillsWeightage")
-            or ai_result.get("matched_skills_weightage")
-            or build_weightage(matched_skills, job_text, matched=True)
+        "score": score,
+        "match_score": score,
+        "match": f"{round(score)}%",
+        "matchLabel":
+            get_recommendation_label(score),
+
+        "required_skills":
+            required_skills,
+
+        "matched_skills":
+            matched_skills,
+
+        "missing_skills":
+            missing_skills,
+
+        "matchedSkillsWeightage":
+            build_weightage(
+                matched_skills,
+                job_text,
+                matched=True,
+            ),
+
+        "missingSkillsWeightage":
+            build_weightage(
+                missing_skills,
+                job_text,
+                matched=False,
+            ),
+
+        "scoreBreakdown":
+            score_result["breakdown"],
+
+        "reason": (
+            "Matched using semantic embedding similarity, "
+            "required skill coverage, "
+            "experience relevance, and profile quality."
         ),
-        "missingSkillsWeightage": (
-            ai_result.get("missingSkillsWeightage")
-            or ai_result.get("missing_skills_weightage")
-            or build_weightage(missing_skills, job_text, matched=False)
+
+        "career_advice": (
+            "Improve missing skills and add clear "
+            "project/work evidence to increase "
+            "your TalentFlow match score."
         ),
-        "reason": ai_result.get("reason", ""),
-        "learning_suggestions": ai_result.get(
-            "learning_suggestions", missing_skills[:5]
-        ),
-        "career_advice": ai_result.get(
-            "career_advice",
-            "Focus on missing high-priority skills to improve your match.",
-        ),
-        "source": ai_result.get("source", "AI"),
+
+        "learning":
+            missing_skills[:5],
+
+        "analysis_source":
+            "semantic-dynamic-scoring",
     }
 
 
@@ -268,135 +339,127 @@ async def match_jobs(
     limit: Optional[int] = None,
 ):
     if resume_path:
-        parsed = parse_resume(resume_path)
-        user_text = parsed.get("resume_text", "")
-        user_skills = parsed.get("skills", [])
-
-    elif resume_text:
-        user_text = resume_text
-        user_skills = extract_skills(resume_text)
+        parsed = parse_resume(
+            resume_path
+        )
 
     else:
-        return {
-            "detected_role": {},
-            "ai_enabled": USE_AI,
-            "total_jobs": 0,
-            "jobs": [],
+        parsed = {
+            "skills":
+                extract_skills(
+                    resume_text or ""
+                ),
+
+            "resume_text":
+                resume_text or "",
+
+            "role":
+                detect_role(
+                    resume_text or ""
+                ),
+
+            "experience": "",
+
+            "summary":
+                resume_text or "",
         }
 
-    user_text = str(user_text or "").strip()
-    user_skills = unique_list(user_skills)
+    user_skills = unique_list(
+        parsed.get("skills", [])
+    )
 
-    if not user_text:
-        return {
-            "detected_role": {},
-            "ai_enabled": USE_AI,
-            "total_jobs": 0,
-            "jobs": [],
-        }
+    user_role = detect_role(
+        parsed.get("resume_text", "")
+        or resume_text
+        or ""
+    )
 
-    role = detect_role(user_text)
+    user_text = (
+        f"{parsed.get('role', '')} "
+        f"{' '.join(user_skills)} "
+        f"{parsed.get('experience', '')} "
+        f"{parsed.get('education', '')} "
+        f"{parsed.get('summary', '')} "
+        f"{parsed.get('resume_text', '')[:3000]}"
+    ).strip()
 
-    jobs = await db_handler.collection.find({}).to_list(500)
+    jobs_cursor = (
+        db_handler.collection.find({})
+    )
+
+    jobs = await jobs_cursor.to_list(
+        length=5000
+    )
 
     if not jobs:
         return {
-            "detected_role": role,
-            "ai_enabled": USE_AI,
-            "total_jobs": 0,
             "jobs": [],
+            "detected_role":
+                user_role,
         }
-
-    job_texts = [build_text(job) for job in jobs]
-
-    # ✅ Load heavy embedding model only when matching is actually called.
-    get_embedding, get_embeddings, get_similarity = load_embedding_functions()
-
-    user_emb = get_embedding(user_text)
-    job_embs = get_embeddings(job_texts)
-    scores = get_similarity(user_emb, job_embs)
-
-    temp_results = []
-
-    for i, job in enumerate(jobs):
-        temp_results.append(
-            {
-                "job": job,
-                "job_text": job_texts[i],
-                "embedding_score": float(scores[i]),
-            }
-        )
-
-    temp_results.sort(key=lambda x: x["embedding_score"], reverse=True)
 
     results = []
 
-    for index, item in enumerate(temp_results):
-        job = item["job"]
-        job_text = item["job_text"]
-        emb_score = item["embedding_score"]
-
-        ai_result = None
-
-        if USE_AI and index < 2:
-            ai_result = ai_match_analysis(user_text, job_text)
-
-        if ai_result:
-            ai_result = normalize_ai_result(
-                ai_result,
-                user_skills,
-                job_text,
-                emb_score,
-            )
-        else:
-            ai_result = fallback_match(
-                user_text,
-                user_skills,
-                job_text,
-                emb_score,
+    for job in jobs:
+        try:
+            final_result = analyze_job_match(
+                parsed=parsed,
+                user_text=user_text,
+                user_skills=user_skills,
+                job=job,
             )
 
-        final_score = calculate_score(emb_score, ai_result)
+            if not final_result:
+                continue
 
-        results.append(
-            {
-                "title": job.get("title", ""),
-                "company": job.get("company", ""),
-                "location": job.get("location", ""),
-                "salary": job.get("salary", ""),
-                "experience": job.get("experience", ""),
-                "description": job.get("description", ""),
-                "link": job.get("link", ""),
-                "source": job.get("source", ""),
-                "score": final_score,
-                "embedding_score": round(emb_score, 3),
-                "fit": ai_result.get("is_fit", False),
-                "required_skills": ai_result.get("required_skills", []),
-                "matched_skills": ai_result.get("matched_skills", []),
-                "missing_skills": ai_result.get("missing_skills", []),
-                "matchedSkillsWeightage": ai_result.get(
-                    "matchedSkillsWeightage", []
-                ),
-                "missingSkillsWeightage": ai_result.get(
-                    "missingSkillsWeightage", []
-                ),
-                "reason": ai_result.get("reason", ""),
-                "learning": ai_result.get("learning_suggestions", []),
-                "career_advice": ai_result.get("career_advice", ""),
-                "analysis_source": ai_result.get("source", "AI"),
-            }
-        )
+            score = final_result[
+                "score"
+            ]
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+            if score < 35:
+                continue
 
-    if limit is None:
-        limit = decide_limit(results)
+            job_id = str(
+                job.get("_id", "")
+            )
 
-    limit = min(int(limit), 50)
+            results.append({
+                **job,
+                "_id": job_id,
+                "id": job_id,
+                "jobId":
+                    job_id
+                    or job.get(
+                        "link",
+                        "",
+                    ),
+
+                **final_result,
+            })
+
+        except Exception as error:
+            print(
+                "❌ Match Error:",
+                str(error),
+            )
+
+    results.sort(
+        key=lambda item: item.get(
+            "score",
+            0,
+        ),
+        reverse=True,
+    )
+
+    final_limit = (
+        limit
+        or decide_limit(results)
+    )
 
     return {
-        "detected_role": role,
-        "ai_enabled": USE_AI,
-        "total_jobs": len(results[:limit]),
-        "jobs": results[:limit],
+        "jobs":
+            results[:final_limit],
+
+        "detected_role":
+            user_role,
     }

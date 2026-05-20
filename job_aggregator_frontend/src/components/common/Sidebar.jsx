@@ -47,7 +47,7 @@ export default function Sidebar({
 
     const roleTitle = {
         candidate: "Career Dashboard",
-        employer: "Employer Workspace",
+        employer: "Recruiter Workspace",
         admin: "Admin Panel",
     };
 

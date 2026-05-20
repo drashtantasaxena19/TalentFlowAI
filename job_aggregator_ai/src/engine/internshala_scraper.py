@@ -52,7 +52,7 @@ async def extract_job_internshala(context, job):
                     location: get(".location_link, .locations"),
                     salary: get(".salary, .stipend"),
                     experience: get(".experience, .duration"),
-                    apply_by: get(".apply_by"),
+                    link: get(".link"),
                     description: (
                         document.querySelector(".internship_details")?.innerText || ""
                     )

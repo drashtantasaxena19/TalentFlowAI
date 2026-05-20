@@ -25,7 +25,7 @@ class SavedJobRequest(BaseModel):
     experience: Optional[str] = ""
     match: Optional[str] = ""
 
-    applyLink: str = Field(..., min_length=1)
+    link: str = Field(..., min_length=1)
 
     hrEmail: Optional[str] = ""
     hrPhone: Optional[str] = ""
@@ -103,7 +103,7 @@ async def save_job(
 
     existing = await saved_jobs_collection.find_one({
         "email": email,
-        "applyLink": job.applyLink,
+        "link": job.link,
     })
 
     if existing:
@@ -174,7 +174,7 @@ async def get_saved_jobs(
 
 @router.delete("/remove")
 async def remove_saved_job(
-    applyLink: str = Query(...),
+    link: str = Query(...),
     current_user: dict[str, str] = Depends(get_current_user),
 ):
     email = current_user.get("email", "")
@@ -194,7 +194,7 @@ async def remove_saved_job(
 
     result = await saved_jobs_collection.delete_one({
         "email": email,
-        "applyLink": applyLink,
+        "link": link,
     })
 
     if result.deleted_count == 0:

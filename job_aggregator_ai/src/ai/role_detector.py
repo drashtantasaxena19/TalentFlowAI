@@ -1,39 +1,128 @@
-from src.ai.ai_resume_parser import parse_resume_ai, USE_AI
+from typing import Optional
 
+from sentence_transformers import SentenceTransformer
 
-def fallback_role(text: str):
-    text = (text or "").lower()
+model = SentenceTransformer(
+    "sentence-transformers/all-MiniLM-L6-v2"
+)
 
-    if any(x in text for x in ["power bi", "tableau", "excel", "sql", "dashboard", "data analysis"]):
-        return {"target_role": "Data Analyst", "role_category": "data"}
+def detect_role(text: Optional[str] = ""):
+    text = str(text or "").lower()
 
-    if any(x in text for x in ["machine learning", "deep learning", "tensorflow", "pytorch", "scikit-learn", "nlp", "artificial intelligence"]):
-        return {"target_role": "AI/ML Engineer", "role_category": "ai/ml"}
+    role_patterns = {
+        "Data Analyst": [
+            "data analyst",
+            "power bi",
+            "sql",
+            "tableau",
+            "analytics",
+        ],
 
-    if any(x in text for x in ["react", "node", "mongodb", "express", "mern"]):
-        return {"target_role": "MERN Developer", "role_category": "development"}
+        "AI/ML Engineer": [
+            "machine learning",
+            "deep learning",
+            "artificial intelligence",
+            "tensorflow",
+            "pytorch",
+            "nlp",
+        ],
 
-    if any(x in text for x in ["fastapi", "django", "flask", "python"]):
-        return {"target_role": "Python Developer", "role_category": "development"}
+        "Python Developer": [
+            "python",
+            "fastapi",
+            "django",
+            "flask",
+        ],
 
-    if any(x in text for x in ["html", "css", "javascript", "tailwind", "frontend"]):
-        return {"target_role": "Frontend Developer", "role_category": "development"}
+        "Frontend Developer": [
+            "react",
+            "frontend",
+            "javascript",
+            "tailwind",
+            "html",
+            "css",
+        ],
 
-    return {"target_role": "General Candidate", "role_category": "general"}
+        "Backend Developer": [
+            "node",
+            "express",
+            "mongodb",
+            "backend",
+            "api",
+        ],
 
+        "Full Stack Developer": [
+            "mern",
+            "full stack",
+            "react",
+            "node",
+        ],
 
-def detect_role(text: str):
-    if USE_AI:
-        data = parse_resume_ai(text)
+        "Electrician": [
+            "electrician",
+            "electrical",
+            "wiring",
+            "maintenance",
+        ],
 
-        if data and data.get("role"):
-            return {
-                "target_role": str(data.get("role", "")).strip(),
-                "role_category": "ai_detected",
-                "source": data.get("source", "AI"),
-            }
+        "Plumber": [
+            "plumber",
+            "pipe",
+            "water",
+            "fitting",
+        ],
 
-    role = fallback_role(text)
-    role["source"] = "fallback"
+        "Mechanic": [
+            "mechanic",
+            "repair",
+            "vehicle",
+            "engine",
+        ],
 
-    return role
+        "Ground Staff": [
+            "ground staff",
+            "airport",
+            "aviation",
+        ],
+
+        "Driver": [
+            "driver",
+            "driving",
+            "transport",
+        ],
+
+        "Teacher": [
+            "teacher",
+            "teaching",
+            "faculty",
+        ],
+
+        "Manager": [
+            "manager",
+            "management",
+            "operations",
+        ],
+
+        "Sales Executive": [
+            "sales",
+            "marketing",
+            "business development",
+        ],
+    }
+
+    best_role = "General Professional"
+
+    best_score = 0
+
+    for role, keywords in role_patterns.items():
+        score = sum(
+            1
+            for keyword in keywords
+            if keyword in text
+        )
+
+        if score > best_score:
+            best_score = score
+            best_role = role
+
+    return best_role

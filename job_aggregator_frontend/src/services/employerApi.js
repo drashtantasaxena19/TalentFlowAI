@@ -51,3 +51,25 @@ export const rankCandidatesForJob = async (jobId) => {
     const res = await api.get(`/employer/rank-candidates/${jobId}`);
     return res.data;
 };
+
+export const parseEmployerJD = async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await api.post("/jd-parser/upload", formData, {
+        headers: {
+            "Content-Type": "multipart/form-data",
+        },
+    });
+
+    return res.data;
+};
+
+export const analyzeCandidateAI = async (payload) => {
+    const response = await api.post(
+        "/employer/ai-analyze",
+        payload
+    );
+
+    return response.data;
+};

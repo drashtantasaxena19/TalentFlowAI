@@ -45,27 +45,27 @@ export default function JobCard({
     const getFinalApplyLink = () => {
         return normalizeUrl(
             job.applyLink ||
-                job.applicationLink ||
-                job.applicationUrl ||
-                job.applyUrl ||
-                job.apply_url ||
-                job.application_url ||
-                job.jobUrl ||
-                job.job_url ||
-                job.url ||
-                job.link ||
-                ""
+            job.applicationLink ||
+            job.applicationUrl ||
+            job.applyUrl ||
+            job.apply_url ||
+            job.application_url ||
+            job.jobUrl ||
+            job.job_url ||
+            job.url ||
+            job.link ||
+            ""
         );
     };
 
     const getJobId = () => {
         return String(
             job._id ||
-                job.id ||
-                job.jobId ||
-                job.link ||
-                job.applyLink ||
-                `${job.title || job.jobTitle || "job"}-${job.company || "company"}`
+            job.id ||
+            job.jobId ||
+            job.link ||
+            job.applyLink ||
+            `${job.title || job.jobTitle || "job"}-${job.company || "company"}`
         );
     };
 
@@ -277,9 +277,9 @@ export default function JobCard({
             const list = Array.isArray(value)
                 ? value.filter(Boolean)
                 : String(value || "")
-                      .split(",")
-                      .map((item) => item.trim())
-                      .filter(Boolean);
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean);
 
             const finalList = list.length ? list : ["Not specified"];
 
@@ -357,160 +357,211 @@ export default function JobCard({
     const isApplyDisabled = applying || checkingApplied || isApplied || !finalApplyLink;
 
     return (
-        <div className="rounded-[2rem] bg-gradient-to-br from-slate-900 via-slate-900 to-violet-950/30 border border-violet-500/20 p-6 hover:border-violet-400/50 transition shadow-xl shadow-violet-950/10">
-            <div className="grid lg:grid-cols-4 gap-6 items-center">
-                <div className="lg:col-span-2">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="h-11 w-11 rounded-2xl bg-violet-500/15 border border-violet-400/20 flex items-center justify-center">
-                            <Briefcase className="text-violet-300" size={23} />
+        <div className="rounded-[2rem] border border-violet-500/20 bg-gradient-to-br from-slate-900 via-slate-900 to-violet-950/20 p-6 hover:border-cyan-400/40 transition-all duration-300 shadow-xl shadow-violet-950/10 overflow-hidden">
+
+            <div className="flex flex-col xl:flex-row gap-6">
+
+                {/* LEFT */}
+
+                <div className="flex-1 min-w-0">
+
+                    <div className="flex items-start gap-4">
+
+                        <div className="h-14 w-14 shrink-0 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-cyan-400/20 flex items-center justify-center">
+                            <Briefcase
+                                className="text-cyan-300"
+                                size={24}
+                            />
                         </div>
 
-                        <h2 className="text-2xl font-extrabold">{title}</h2>
+                        <div className="min-w-0 flex-1">
+
+                            <h2 className="text-2xl font-bold text-white leading-tight break-words">
+                                {title}
+                            </h2>
+
+                            <p className="text-cyan-300 mt-1 font-medium">
+                                {job.company || "Company not specified"}
+                            </p>
+
+                            <div className="flex flex-wrap gap-4 mt-4 text-sm text-slate-400">
+
+                                <div className="flex items-center gap-2">
+                                    <MapPin
+                                        size={16}
+                                        className="text-fuchsia-300"
+                                    />
+                                    <span>
+                                        {job.location || "Not specified"}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <IndianRupee
+                                        size={16}
+                                        className="text-fuchsia-300"
+                                    />
+                                    <span>
+                                        {job.salary || "Not disclosed"}
+                                    </span>
+                                </div>
+
+                            </div>
+
+                            {job.reason && (
+                                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+                                    <p className="text-sm text-slate-300 leading-relaxed line-clamp-3">
+                                        {job.reason}
+                                    </p>
+                                </div>
+                            )}
+
+                            {message && (
+                                <p
+                                    className={`mt-4 text-sm font-semibold ${isApplied
+                                        ? "text-emerald-300"
+                                        : "text-yellow-300"
+                                        }`}
+                                >
+                                    {message}
+                                </p>
+                            )}
+
+                        </div>
                     </div>
-
-                    <p className="text-slate-300 font-medium">
-                        {job.company || "Company not specified"}
-                    </p>
-
-                    <div className="flex flex-wrap gap-4 mt-3 text-slate-400">
-                        <span className="flex items-center gap-2">
-                            <MapPin size={18} className="text-fuchsia-300" />
-                            {job.location || "Not specified"}
-                        </span>
-
-                        <span className="flex items-center gap-2">
-                            <IndianRupee size={18} className="text-fuchsia-300" />
-                            {job.salary || "Not disclosed"}
-                        </span>
-                    </div>
-
-                    {job.reason && (
-                        <p className="text-sm text-slate-400 mt-3 line-clamp-2">
-                            {job.reason}
-                        </p>
-                    )}
-
-                    {message && (
-                        <p
-                            className={`mt-3 text-sm font-semibold ${
-                                isApplied ? "text-emerald-300" : "text-yellow-300"
-                            }`}
-                        >
-                            {message}
-                        </p>
-                    )}
                 </div>
 
-                <div className="text-center rounded-3xl border border-slate-800 bg-slate-950/50 p-4">
-                    <p className="text-slate-400">AI Match</p>
+                {/* RIGHT */}
 
-                    <h3 className="text-4xl font-extrabold text-emerald-400 mt-2">
-                        {job.match || job.matchScore || "N/A"}
-                    </h3>
+                <div className="xl:w-[290px] shrink-0 flex flex-col gap-4">
 
-                    {job.source && (
-                        <p className="text-xs text-slate-500 mt-2">
-                            Source: {job.source}
+                    {/* MATCH */}
+
+                    <div className="rounded-[2rem] border border-cyan-500/20 bg-slate-950/70 p-5 text-center">
+
+                        <p className="text-slate-400 text-sm uppercase tracking-wide">
+                            AI Match
                         </p>
-                    )}
-                </div>
 
-                <div className="flex flex-col gap-3">
-                    <button
-                        type="button"
-                        onClick={handleApply}
-                        disabled={isApplyDisabled}
-                        className={`w-full py-3 rounded-2xl font-bold transition flex items-center justify-center gap-2 ${
-                            isApplied
-                                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/40 cursor-not-allowed"
-                                : !finalApplyLink
-                                ? "bg-yellow-500/10 text-yellow-300 border border-yellow-400/30 cursor-not-allowed"
-                                : "bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-400 text-slate-950 hover:scale-[1.01] disabled:opacity-70"
-                        }`}
-                    >
-                        {applying || checkingApplied ? (
-                            <>
-                                <Loader2 size={18} className="animate-spin" />
-                                {checkingApplied ? "Checking..." : "Applying..."}
-                            </>
-                        ) : isApplied ? (
-                            <>
-                                <CheckCircle2 size={18} />
-                                Applied
-                            </>
-                        ) : finalApplyLink ? (
-                            <>
-                                Apply Now
-                                <ExternalLink size={18} />
-                            </>
-                        ) : (
-                            <>
-                                <AlertCircle size={18} />
-                                Link Missing
-                            </>
+                        <h3 className="text-5xl font-black text-emerald-400 mt-2">
+                            {job.match || "N/A"}
+                        </h3>
+
+                        {job.source && (
+                            <p className="text-xs text-slate-500 mt-3">
+                                {job.source}
+                            </p>
                         )}
-                    </button>
+                    </div>
 
-                    <Link
-                        to="/candidate/job-details"
-                        state={{ job }}
-                        className="w-full py-3 rounded-2xl border border-violet-400 text-violet-300 font-bold hover:bg-violet-400 hover:text-slate-950 transition flex items-center justify-center gap-2"
-                    >
-                        <Eye size={18} />
-                        View Details
-                    </Link>
+                    {/* ACTIONS */}
 
-                    <button
-                        type="button"
-                        onClick={handleDownloadJD}
-                        className="w-full py-3 rounded-2xl border border-fuchsia-400 text-fuchsia-300 font-bold hover:bg-fuchsia-400 hover:text-slate-950 transition flex items-center justify-center gap-2"
-                    >
-                        <Download size={18} />
-                        Download JD
-                    </button>
+                    <div className="flex flex-col gap-3">
 
-                    <div className="grid grid-cols-3 gap-2">
+                        <button
+                            type="button"
+                            onClick={handleApply}
+                            disabled={isApplyDisabled}
+                            className={`w-full py-3.5 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-2 ${isApplied
+                                ? "bg-emerald-500/10 border border-emerald-400/30 text-emerald-300 cursor-not-allowed"
+                                : !finalApplyLink
+                                    ? "bg-yellow-500/10 border border-yellow-400/30 text-yellow-300 cursor-not-allowed"
+                                    : "bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400 text-slate-950 hover:scale-[1.02]"
+                                }`}
+                        >
+                            {applying || checkingApplied ? (
+                                <>
+                                    <Loader2
+                                        size={18}
+                                        className="animate-spin"
+                                    />
+                                    {checkingApplied
+                                        ? "Checking..."
+                                        : "Applying..."}
+                                </>
+                            ) : isApplied ? (
+                                <>
+                                    <CheckCircle2 size={18} />
+                                    Applied
+                                </>
+                            ) : (
+                                <>
+                                    Apply Now
+                                    <ExternalLink size={18} />
+                                </>
+                            )}
+                        </button>
+
+                        <Link
+                            to="/candidate/job-details"
+                            state={{ job }}
+                            className="w-full py-3.5 rounded-2xl border border-violet-400/30 text-violet-300 hover:bg-violet-400 hover:text-slate-950 transition-all duration-300 font-bold flex items-center justify-center gap-2"
+                        >
+                            <Eye size={18} />
+                            View Details
+                        </Link>
+
+                        <button
+                            type="button"
+                            onClick={handleDownloadJD}
+                            className="w-full py-3.5 rounded-2xl border border-fuchsia-400/30 text-fuchsia-300 hover:bg-fuchsia-400 hover:text-slate-950 transition-all duration-300 font-bold flex items-center justify-center gap-2"
+                        >
+                            <Download size={18} />
+                            Download JD
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={onSave}
+                            className={`w-full py-3.5 rounded-2xl border transition-all duration-300 flex items-center justify-center gap-2 font-bold ${isSaved
+                                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                                : "border-slate-700 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"
+                                }`}
+                        >
+                            {isSaved ? (
+                                <BookmarkCheck size={18} />
+                            ) : (
+                                <Bookmark size={18} />
+                            )}
+
+                            {isSaved
+                                ? "Saved"
+                                : "Save Job"}
+                        </button>
+
+                    </div>
+
+                    {/* CONTACT */}
+
+                    <div className="grid grid-cols-3 gap-3">
+
                         <a
                             href={job.chatLink || "#"}
                             target="_blank"
                             rel="noreferrer"
-                            className="py-2.5 rounded-2xl border border-slate-700 text-slate-300 hover:border-violet-400 hover:text-violet-300 transition flex items-center justify-center"
-                            title="Chat with HR"
+                            className="h-12 rounded-2xl border border-slate-700 flex items-center justify-center text-slate-300 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-300"
                         >
                             <MessageCircle size={18} />
                         </a>
 
                         <a
-                            href={`tel:${job.hrPhone || job.hr_phone || ""}`}
-                            className="py-2.5 rounded-2xl border border-slate-700 text-slate-300 hover:border-violet-400 hover:text-violet-300 transition flex items-center justify-center"
-                            title="Call HR"
+                            href={`tel:${job.hrPhone || ""}`}
+                            className="h-12 rounded-2xl border border-slate-700 flex items-center justify-center text-slate-300 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-300"
                         >
                             <Phone size={18} />
                         </a>
 
                         <a
-                            href={`mailto:${job.hrEmail || job.hr_email || ""}`}
-                            className="py-2.5 rounded-2xl border border-slate-700 text-slate-300 hover:border-violet-400 hover:text-violet-300 transition flex items-center justify-center"
-                            title="Mail HR"
+                            href={`mailto:${job.hrEmail || ""}`}
+                            className="h-12 rounded-2xl border border-slate-700 flex items-center justify-center text-slate-300 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-300"
                         >
                             <Mail size={18} />
                         </a>
+
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={onSave}
-                        className={`w-full py-3 rounded-2xl border transition flex items-center justify-center gap-2 font-bold ${
-                            isSaved
-                                ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
-                                : "border-slate-700 text-slate-300 hover:border-violet-400 hover:text-violet-300"
-                        }`}
-                    >
-                        {isSaved ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
-                        {isSaved ? "Saved" : "Save Job"}
-                    </button>
                 </div>
             </div>
         </div>
-    );
+    )
 }

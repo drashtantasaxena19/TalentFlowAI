@@ -18,6 +18,7 @@ async def process_single_job(task: dict):
     task_id = task["_id"]
 
     try:
+
         await prefetch_collection.update_one(
             {"_id": task_id},
             {
@@ -32,11 +33,31 @@ async def process_single_job(task: dict):
 
         if subscription_response.get("success"):
             subscription_data = {
-                "currentPlan": subscription_response.get("currentPlan", "free"),
-                "subscription": subscription_response.get("subscription", {}),
-                "usage": subscription_response.get("usage", {}),
-                "features": subscription_response.get("features", {}),
+                "currentPlan":
+                    subscription_response.get(
+                        "currentPlan",
+                        "free",
+                    ),
+
+                "subscription":
+                    subscription_response.get(
+                        "subscription",
+                        {},
+                    ),
+
+                "usage":
+                    subscription_response.get(
+                        "usage",
+                        {},
+                    ),
+
+                "features":
+                    subscription_response.get(
+                        "features",
+                        {},
+                    ),
             }
+
         else:
             subscription_data = {
                 "currentPlan": "free",
@@ -45,11 +66,22 @@ async def process_single_job(task: dict):
                 "features": {},
             }
 
-        recommended_data = await get_user_jobs(email=email)
+        recommended_data = await get_user_jobs(
+            email=email
+        )
 
         jobs = recommended_data.get("jobs", [])
-        detected_role = recommended_data.get("detected_role", {})
-        upgrade_message = recommended_data.get("upgradeMessage", "")
+
+        detected_role = recommended_data.get(
+            "detected_role",
+            {}
+        )
+
+        upgrade_message = recommended_data.get(
+            "upgradeMessage",
+            ""
+        )
+
 
         await result_collection.update_one(
             {"email": email},
@@ -57,12 +89,18 @@ async def process_single_job(task: dict):
                 "$set": {
                     "email": email,
                     "status": "completed",
+
                     "jobs": jobs,
+
                     "detected_role": detected_role,
+
                     "subscription": subscription_data,
+
                     "upgradeMessage": upgrade_message,
+
                     "updatedAt": datetime.utcnow(),
                 },
+
                 "$setOnInsert": {
                     "createdAt": datetime.utcnow(),
                 },
@@ -70,9 +108,15 @@ async def process_single_job(task: dict):
             upsert=True,
         )
 
-        await prefetch_collection.delete_one({"_id": task_id})
 
-        print(f"✅ Prefetch completed for {email} | Jobs: {len(jobs)}")
+        await prefetch_collection.delete_one(
+            {"_id": task_id}
+        )
+
+        print(
+            f"✅ Prefetch completed for {email} "
+            f"| Jobs: {len(jobs)}"
+        )
 
     except Exception as error:
         await prefetch_collection.update_one(
@@ -83,13 +127,17 @@ async def process_single_job(task: dict):
                     "error": str(error),
                     "updatedAt": datetime.utcnow(),
                 },
+
                 "$inc": {
                     "attempts": 1,
                 },
             },
         )
 
-        print(f"❌ Prefetch failed for {email}: {str(error)}")
+        print(
+            f"❌ Prefetch failed for {email}: "
+            f"{str(error)}"
+        )
 
 
 async def worker_loop():
@@ -101,19 +149,40 @@ async def worker_loop():
                 {
                     "status": "queued",
                 }
-            ).sort("createdAt", 1).to_list(5)
+            ).sort(
+                "createdAt",
+                1
+            ).to_list(5)
+
 
             if not queued_jobs:
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
                 continue
 
-            for task in queued_jobs:
-                await process_single_job(task)
 
-        except Exception as loop_error:
-            print(f"❌ Worker loop error: {str(loop_error)}")
-            await asyncio.sleep(5)
+            tasks = [
+                process_single_job(task)
+                for task in queued_jobs
+            ]
+
+            await asyncio.gather(
+                *tasks,
+                return_exceptions=True,
+            )
+
+        except Exception as error:
+            print(
+                "❌ Worker Loop Error:",
+                str(error)
+            )
+
+
+        await asyncio.sleep(2)
+
+
+async def start_worker():
+    await worker_loop()
 
 
 if __name__ == "__main__":
-    asyncio.run(worker_loop())
+    asyncio.run(start_worker())

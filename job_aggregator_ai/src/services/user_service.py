@@ -1,6 +1,6 @@
 from passlib.context import CryptContext
 from datetime import datetime
-from src.ai.resume_parser import parse_resume
+from job_aggregator_ai.src.ai.resume_parser import parse_resume
 from src.models.user_model import save_user_profile
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

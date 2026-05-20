@@ -2,16 +2,22 @@ import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import JobCard from "../../components/candidate/JobCard";
 import Loader from "../../components/common/Loader";
-import { Lock, RefreshCcw, Crown, Search, X } from "lucide-react";
+import { RefreshCcw, Crown, Search, X, Sparkles } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+
 import {
   saveJob,
   getSavedJobs,
   removeSavedJob,
+  startJobsPrefetch,
+  getPrefetchJobsResult,
   searchCandidateJobs,
   getMyApplications,
 } from "../../services/jobsApi";
+
 import { getCurrentSubscription } from "../../services/subscriptionApi";
+
+const JOB_CACHE_KEY = "talentflow_recommended_jobs_cache";
 
 export default function RecommendedJobs() {
   const { user } = useAuth();
@@ -20,23 +26,36 @@ export default function RecommendedJobs() {
   const [savedJobs, setSavedJobs] = useState([]);
   const [appliedJobs, setAppliedJobs] = useState([]);
 
+  const [detectedRole, setDetectedRole] = useState("");
   const [subscription, setSubscription] = useState(null);
-  const [status, setStatus] = useState("completed");
-  const [loading, setLoading] = useState(false);
+  const [upgradeMessage, setUpgradeMessage] = useState("");
+
+  const [status, setStatus] = useState("loading");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
 
+  const getUserCacheKey = () =>
+    user?.email ? `${JOB_CACHE_KEY}_${user.email}` : JOB_CACHE_KEY;
+
   const normalizeLink = (value) => {
     const link = String(value || "").trim();
     if (!link) return "";
-    if (link.startsWith("http://") || link.startsWith("https://")) return link;
-    return `https://${link}`;
+
+    const fixed = link.replace(/^hhttps:\/\//i, "https://");
+
+    if (fixed.startsWith("http://") || fixed.startsWith("https://")) {
+      return fixed;
+    }
+
+    return `https://${fixed.replace(/^https?:\/\//i, "")}`;
   };
 
-  const getJobLink = (job) => {
-    return normalizeLink(
+  const getJobLink = (job) =>
+    normalizeLink(
       job?.applyLink ||
         job?.applicationLink ||
         job?.applicationUrl ||
@@ -45,21 +64,18 @@ export default function RecommendedJobs() {
         job?.application_url ||
         job?.link ||
         job?.url ||
-        job?.jobUrl ||
-        job?.job_url
+        ""
     );
-  };
 
-  const getJobId = (job) => {
-    return String(
+  const getJobId = (job) =>
+    String(
       job?._id ||
         job?.id ||
         job?.jobId ||
         job?.link ||
         job?.applyLink ||
-        `${job?.title || job?.jobTitle || "job"}-${job?.company || "company"}`
+        `${job?.title || "job"}-${job?.company || "company"}`
     );
-  };
 
   const isJobApplied = (job) => {
     const currentJobId = getJobId(job);
@@ -76,6 +92,24 @@ export default function RecommendedJobs() {
     });
   };
 
+  const extractDetectedRole = (rawRole) => {
+    if (!rawRole) return "";
+    if (typeof rawRole === "string") return rawRole;
+
+    if (typeof rawRole === "object") {
+      return (
+        rawRole.target_role ||
+        rawRole.role ||
+        rawRole.detected_role ||
+        rawRole.name ||
+        rawRole.title ||
+        ""
+      );
+    }
+
+    return "";
+  };
+
   const extractMatchScore = (job) => {
     const rawScore =
       job.score ??
@@ -84,26 +118,24 @@ export default function RecommendedJobs() {
       job.similarity_score ??
       job.ai_match_score ??
       job.match ??
-      job.matchScore ??
       0;
 
-    let normalizedScore = Number(rawScore);
-    if (Number.isNaN(normalizedScore)) normalizedScore = 0;
-    if (normalizedScore > 0 && normalizedScore <= 1) normalizedScore *= 100;
+    let score = Number(String(rawScore).replace("%", ""));
+    if (Number.isNaN(score)) score = 0;
+    if (score > 0 && score <= 1) score *= 100;
 
-    return Math.max(0, Math.min(100, normalizedScore));
+    return Math.max(0, Math.min(100, score));
   };
 
   const normalizeJob = (job) => {
-    const jobLink = getJobLink(job);
-    const normalizedScore = extractMatchScore(job);
+    const score = extractMatchScore(job);
+    const link = getJobLink(job);
 
     return {
       ...job,
-
       _id: job._id || job.id || "",
       id: job.id || job._id || "",
-      jobId: job.jobId || job._id || job.id || job.link || job.applyLink || "",
+      jobId: job.jobId || job._id || job.id || job.link || link || "",
 
       title: job.title || job.jobTitle || "Untitled Job",
       company: job.company || "Company not specified",
@@ -111,63 +143,86 @@ export default function RecommendedJobs() {
       salary: job.salary || "Not disclosed",
       experience: job.experience || job.jobExperience || "",
 
-      jobType: job.jobType || job.job_type || "",
-      workMode: job.workMode || job.work_mode || "",
-      deadline: job.deadline || "",
-      status: job.status || "active",
+      match: score ? `${Math.round(score)}%` : job.match || "N/A",
+      score: Math.round(score),
+      matchScore: Math.round(score),
 
-      match: normalizedScore ? `${Math.round(normalizedScore)}%` : job.match || "N/A",
-      score: Math.round(normalizedScore),
-      matchScore: Math.round(normalizedScore),
-
-      applyLink: jobLink,
-      applicationLink: job.applicationLink || job.application_link || jobLink,
+      applyLink: link,
+      applicationLink: job.applicationLink || job.application_link || link,
 
       hrEmail: job.hrEmail || job.hr_email || "",
       hrPhone: job.hrPhone || job.hr_phone || "",
       chatLink: job.chatLink || job.chat_link || "",
 
-      reason:
-        job.reason ||
-        job.aiReason ||
-        job.description ||
-        "Recommended based on your profile and available job data.",
-
-      learning: job.learning || [],
-      careerAdvice: job.career_advice || job.careerAdvice || "",
-
-      skills: job.skills || job.required_skills || job.requiredSkills || [],
       requiredSkills: job.required_skills || job.requiredSkills || job.skills || [],
       matchedSkills: job.matched_skills || job.matchedSkills || [],
       missingSkills: job.missing_skills || job.missingSkills || [],
 
+      reason:
+        job.reason ||
+        job.aiReason ||
+        "Recommended using AI semantic matching based on your profile.",
+      learning: job.learning || [],
+      careerAdvice: job.career_advice || job.careerAdvice || "",
+
       description: job.description || job.jobDescription || "",
-      requirements: job.requirements || "",
-      responsibilities: job.responsibilities || "",
-
-      employerEmail: job.employerEmail || job.employer_email || "",
-
-      source: job.source || "",
+      source: job.source || "TalentFlow AI",
       analysisSource: job.analysis_source || job.analysisSource || "",
     };
   };
 
+  const formatJobsResponse = (response) => ({
+    jobs: (response.jobs || []).map(normalizeJob),
+    detectedRole: extractDetectedRole(response.detected_role),
+    subscription: response.subscription || null,
+    upgradeMessage: response.upgradeMessage || "",
+    cachedAt: Date.now(),
+  });
+
+  const saveToCache = (data) => {
+    sessionStorage.setItem(getUserCacheKey(), JSON.stringify(data));
+  };
+
+  const clearCache = () => {
+    sessionStorage.removeItem(getUserCacheKey());
+    localStorage.removeItem(getUserCacheKey());
+  };
+
+  const loadFromCache = () => {
+    try {
+      const cached = sessionStorage.getItem(getUserCacheKey());
+      if (!cached) return false;
+
+      const parsed = JSON.parse(cached);
+
+      if (!parsed.jobs || parsed.jobs.length === 0) return false;
+
+      setJobs(parsed.jobs || []);
+      setDetectedRole(extractDetectedRole(parsed.detectedRole));
+      setSubscription(parsed.subscription || null);
+      setUpgradeMessage(parsed.upgradeMessage || "");
+      setStatus("completed");
+      setLoading(false);
+
+      return true;
+    } catch {
+      clearCache();
+      return false;
+    }
+  };
+
   const isJobSaved = (job) => {
     const currentLink = getJobLink(job);
-    if (!currentLink || currentLink === "#") return false;
+    if (!currentLink) return false;
 
-    return savedJobs.some((savedJob) => {
-      const savedLink = getJobLink(savedJob);
-      return savedLink && savedLink !== "#" && savedLink === currentLink;
-    });
+    return savedJobs.some((savedJob) => getJobLink(savedJob) === currentLink);
   };
 
   const loadSavedJobs = async () => {
     try {
       const response = await getSavedJobs();
       setSavedJobs(response.jobs || []);
-    } catch (error) {
-      console.error("Saved Jobs Error:", error);
+    } catch {
       setSavedJobs([]);
     }
   };
@@ -176,8 +231,7 @@ export default function RecommendedJobs() {
     try {
       const response = await getMyApplications();
       setAppliedJobs(response.applications || []);
-    } catch (error) {
-      console.error("Applied Jobs Error:", error);
+    } catch {
       setAppliedJobs([]);
     }
   };
@@ -186,57 +240,88 @@ export default function RecommendedJobs() {
     try {
       const response = await getCurrentSubscription();
 
-      setSubscription((previous) => ({
-        ...(previous || {}),
-        plan: response.currentPlan || previous?.plan || "free",
-        currentPlan: response.currentPlan || previous?.currentPlan || "free",
-        features: response.features || previous?.features || {},
-        subscription: response.subscription || previous?.subscription || {},
-      }));
+      setSubscription({
+        plan: response.currentPlan || "free",
+        currentPlan: response.currentPlan || "free",
+        features: response.features || {},
+        subscription: response.subscription || {},
+      });
     } catch (error) {
       console.error("Subscription Error:", error);
     }
   };
 
-  const loadInitialData = async () => {
+  const loadPrefetchedJobs = async ({ force = false } = {}) => {
     if (!user?.email) return;
+
+    if (!force) {
+      const hasCache = loadFromCache();
+
+      if (hasCache) {
+        await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
+        return;
+      }
+    }
 
     try {
       setLoading(true);
-      setStatus("completed");
+      setSearchMode(false);
 
-      await Promise.all([
-        loadSavedJobs(),
-        loadAppliedJobs(),
-        loadSubscription(),
-      ]);
+      const result = await getPrefetchJobsResult();
 
+      if (result.status === "completed" && Array.isArray(result.jobs)) {
+        const formatted = formatJobsResponse(result);
+
+        setJobs(formatted.jobs);
+        setDetectedRole(formatted.detectedRole);
+        setSubscription(formatted.subscription);
+        setUpgradeMessage(formatted.upgradeMessage);
+        setStatus("completed");
+
+        if (formatted.jobs.length > 0) {
+          saveToCache(formatted);
+        }
+
+        return;
+      }
+
+      if (result.status === "queued" || result.status === "processing") {
+        setStatus(result.status);
+        setJobs([]);
+        return;
+      }
+
+      const queued = await startJobsPrefetch();
+      setStatus(queued.status || "queued");
       setJobs([]);
     } catch (error) {
-      console.error("Recommended Jobs Initial Load Error:", error);
+      console.error("Recommendation Error:", error);
+      setStatus("failed");
+      setUpgradeMessage(
+        error.response?.data?.detail ||
+          "AI recommendations are being prepared. Please refresh again."
+      );
     } finally {
       setLoading(false);
+      await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
     }
   };
 
   const handleSearchJobs = async (e) => {
     e.preventDefault();
 
-    const query = searchQuery.trim();
-
     try {
       setIsSearching(true);
-      setLoading(false);
-      setSearchMode(Boolean(query));
+      setSearchMode(Boolean(searchQuery.trim()));
 
-      const response = await searchCandidateJobs(query, 100);
+      const response = await searchCandidateJobs(searchQuery.trim(), 100);
       const finalJobs = (response.jobs || []).map(normalizeJob);
 
       setJobs(finalJobs);
       setStatus("completed");
     } catch (error) {
-      console.error("Search Jobs Error:", error);
-      alert(error.response?.data?.detail || "Could not search jobs");
+      console.error("Search Error:", error);
+      setUpgradeMessage(error.response?.data?.detail || "Could not search jobs.");
     } finally {
       setIsSearching(false);
       await Promise.all([loadSavedJobs(), loadAppliedJobs()]);
@@ -246,19 +331,18 @@ export default function RecommendedJobs() {
   const handleClearSearch = async () => {
     setSearchQuery("");
     setSearchMode(false);
-    setJobs([]);
-    await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
+    await loadPrefetchedJobs({ force: true });
   };
 
   const handleSaveJob = async (job) => {
-    const jobLink = getJobLink(job);
-
-    if (!jobLink || jobLink === "#") {
-      alert("This job does not have a valid apply link, so it cannot be saved.");
-      return;
-    }
-
     try {
+      const jobLink = getJobLink(job);
+
+      if (!jobLink) {
+        alert("This job does not have a valid apply link.");
+        return;
+      }
+
       if (isJobSaved(job)) {
         await removeSavedJob(jobLink);
       } else {
@@ -270,7 +354,7 @@ export default function RecommendedJobs() {
 
       await Promise.all([loadSavedJobs(), loadSubscription()]);
     } catch (error) {
-      alert(error.response?.data?.detail || "Could not update saved job");
+      alert(error.response?.data?.detail || "Could not update saved job.");
     }
   };
 
@@ -279,151 +363,202 @@ export default function RecommendedJobs() {
   };
 
   const handleRefreshJobs = async () => {
-    setSearchQuery("");
-    setSearchMode(false);
-    setJobs([]);
-    await Promise.all([loadSavedJobs(), loadAppliedJobs(), loadSubscription()]);
-    alert("AI prefetch is temporarily disabled on the production server. Use search to view jobs.");
+    try {
+      setRefreshing(true);
+      setLoading(true);
+      setSearchQuery("");
+      setSearchMode(false);
+      setUpgradeMessage("");
+
+      clearCache();
+
+      const queued = await startJobsPrefetch();
+
+      setStatus(queued.status || "queued");
+      setJobs([]);
+
+      setTimeout(() => {
+        loadPrefetchedJobs({ force: true });
+      }, 2500);
+    } catch (error) {
+      console.error("Refresh Error:", error);
+      setStatus("failed");
+      setUpgradeMessage(
+        error.response?.data?.detail || "Could not refresh AI recommendations."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
-    loadInitialData();
+    loadPrefetchedJobs({ force: false });
   }, [user?.email]);
 
-  const currentPlan =
-    subscription?.plan ||
-    subscription?.currentPlan ||
-    subscription?.subscription?.plan ||
-    "free";
+  useEffect(() => {
+    if (status !== "queued" && status !== "processing") return;
 
-  const planLimit =
-    subscription?.limit ?? subscription?.features?.recommended_jobs_limit ?? 10;
+    const timer = setInterval(() => {
+      loadPrefetchedJobs({ force: true });
+    }, 4000);
 
-  const isUnlimited = planLimit === -1 || planLimit === null;
-  const isPreparing = status === "queued" || status === "processing";
+    return () => clearInterval(timer);
+  }, [status, user?.email]);
 
   return (
     <DashboardLayout role="candidate">
-      <section className="mb-8">
-        <div className="rounded-[2rem] border border-violet-500/20 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 p-6 md:p-8">
-          <p className="text-violet-300 font-semibold uppercase tracking-wider">
-            Smart Job Search
-          </p>
+      <div className="space-y-6">
+        <div className="rounded-[2rem] border border-cyan-500/20 bg-gradient-to-br from-slate-900 via-slate-950 to-cyan-950/20 p-6 md:p-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="text-cyan-400" size={20} />
+                <p className="text-cyan-400 font-semibold uppercase tracking-wider text-sm">
+                  AI Recommendation Engine
+                </p>
+              </div>
 
-          <h1 className="text-3xl md:text-5xl font-extrabold mt-3">
-            Recommended
-            <span className="block bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
-              Jobs For You
-            </span>
-          </h1>
+              <h1 className="text-3xl md:text-5xl font-black text-white">
+                Recommended Jobs
+              </h1>
 
-          <p className="text-slate-300 mt-4 max-w-2xl">
-            Search jobs from your live database. AI prefetch is temporarily disabled on the free production server.
-          </p>
+              <p className="text-slate-400 mt-3 max-w-3xl">
+                AI-powered recommendations based on your profile, resume, skills,
+                and experience.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-3 mt-5">
+                {detectedRole && (
+                  <div className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-2 text-cyan-300 text-sm">
+                    Detected Role:{" "}
+                    <span className="font-semibold">{detectedRole}</span>
+                  </div>
+                )}
+
+                {subscription?.plan && (
+                  <div className="rounded-full bg-violet-500/10 border border-violet-500/20 px-4 py-2 text-violet-300 text-sm">
+                    Plan:{" "}
+                    <span className="font-semibold uppercase">
+                      {subscription.plan}
+                    </span>
+                  </div>
+                )}
+
+                <div className="rounded-full bg-slate-800/70 border border-slate-700 px-4 py-2 text-slate-300 text-sm">
+                  Jobs: <span className="font-semibold">{jobs.length}</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefreshJobs}
+              disabled={refreshing || status === "queued" || status === "processing"}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold px-6 py-4 transition"
+            >
+              <RefreshCcw
+                size={18}
+                className={
+                  refreshing || status === "queued" || status === "processing"
+                    ? "animate-spin"
+                    : ""
+                }
+              />
+              {refreshing || status === "queued" || status === "processing"
+                ? "Preparing AI Jobs..."
+                : "Refresh AI Jobs"}
+            </button>
+          </div>
         </div>
-      </section>
 
-      <section className="mb-6">
-        <form
-          onSubmit={handleSearchJobs}
-          className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-4 flex flex-col lg:flex-row gap-3"
-        >
-          <div className="flex-1 flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
-            <Search size={20} className="text-violet-300" />
+        <form onSubmit={handleSearchJobs} className="flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+              size={18}
+            />
 
             <input
+              type="text"
+              placeholder="Search jobs, skills, companies..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search jobs by role, company, skills, location..."
-              className="w-full bg-transparent outline-none text-white placeholder:text-slate-500"
+              className="w-full rounded-2xl bg-slate-900 border border-slate-800 text-white pl-12 pr-4 py-4 outline-none focus:border-cyan-500"
             />
           </div>
 
           <button
             type="submit"
             disabled={isSearching}
-            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-400 text-slate-950 font-bold hover:scale-[1.01] transition"
+            className="rounded-2xl bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white px-6 py-4 font-bold transition"
           >
-            {isSearching ? "Searching..." : "Search DB Jobs"}
+            {isSearching ? "Searching..." : "Search"}
           </button>
 
           {searchMode && (
             <button
               type="button"
               onClick={handleClearSearch}
-              className="px-5 py-3 rounded-2xl border border-slate-700 text-slate-300 hover:border-red-400 hover:text-red-300 transition flex items-center justify-center gap-2"
+              className="rounded-2xl border border-slate-700 px-5 py-4 text-slate-300 hover:bg-slate-800 transition flex items-center justify-center"
             >
               <X size={18} />
-              Clear
             </button>
           )}
         </form>
-      </section>
 
-      <section className="mb-8">
-        <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {currentPlan === "free" ? (
-              <Lock className="text-fuchsia-300" size={24} />
-            ) : (
-              <Crown className="text-fuchsia-300" size={24} />
-            )}
+        {(status === "queued" || status === "processing") && (
+          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-6 text-center">
+            <Loader />
+            <p className="text-cyan-300 mt-4 font-semibold">
+              AI recommendations are being generated...
+            </p>
+            <p className="text-slate-400 text-sm mt-2">
+              Page will update automatically after worker completes.
+            </p>
+          </div>
+        )}
 
+        {status === "failed" && (
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-200">
+            {upgradeMessage || "Could not load AI recommendations."}
+          </div>
+        )}
+
+        {status === "completed" && jobs.length > 0 && (
+          <div className="grid grid-cols-1 gap-6">
+            {jobs.map((job, index) => (
+              <JobCard
+                key={getJobId(job) || index}
+                job={job}
+                isSaved={isJobSaved(job)}
+                applied={isJobApplied(job)}
+                onSave={() => handleSaveJob(job)}
+                onApplied={handleApplied}
+              />
+            ))}
+          </div>
+        )}
+
+        {status === "completed" && jobs.length === 0 && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
+            <h3 className="text-xl font-semibold text-white">No jobs found</h3>
+            <p className="text-slate-400 mt-2">
+              Click Refresh AI Jobs or try another search.
+            </p>
+          </div>
+        )}
+
+        {upgradeMessage && status !== "failed" && (
+          <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5 flex items-start gap-3">
+            <Crown className="text-yellow-400 mt-1" />
             <div>
-              <p className="text-slate-300 font-semibold capitalize">
-                {searchMode ? "Database Search" : `${currentPlan} Plan`}
-              </p>
-
-              <p className="text-slate-400 text-sm">
-                {searchMode
-                  ? `Showing database jobs for "${searchQuery}"`
-                  : isUnlimited
-                  ? "Unlimited premium recommendations enabled."
-                  : `Search jobs manually. Current plan recommendation limit: ${planLimit}.`}
-              </p>
+              <h4 className="text-yellow-300 font-semibold">Note</h4>
+              <p className="text-yellow-100/80 text-sm mt-1">{upgradeMessage}</p>
             </div>
           </div>
-
-          <button
-            onClick={handleRefreshJobs}
-            className="px-6 py-3 rounded-2xl border border-violet-400 text-violet-300 font-bold hover:bg-violet-400 hover:text-slate-950 transition flex items-center gap-2"
-          >
-            <RefreshCcw size={18} />
-            Refresh Jobs
-          </button>
-        </div>
-      </section>
-
-      {loading ? (
-        <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8">
-          <Loader text="Loading jobs data..." />
-        </div>
-      ) : isPreparing && !searchMode ? (
-        <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8 text-center">
-          <Loader text="Preparing jobs..." />
-        </div>
-      ) : jobs.length === 0 ? (
-        <div className="rounded-[2rem] bg-slate-900/70 border border-violet-500/20 p-8 text-center">
-          <h2 className="text-2xl font-bold">No jobs shown yet</h2>
-
-          <p className="text-slate-400 mt-2">
-            Search jobs by role, company, skills, or location to view database jobs.
-          </p>
-        </div>
-      ) : (
-        <section className="grid gap-6">
-          {jobs.map((job, index) => (
-            <JobCard
-              key={`${job._id || job.applyLink || job.title}-${job.company}-${index}`}
-              job={job}
-              isSaved={isJobSaved(job)}
-              applied={isJobApplied(job)}
-              onApplied={handleApplied}
-              onSave={() => handleSaveJob(job)}
-            />
-          ))}
-        </section>
-      )}
+        )}
+      </div>
     </DashboardLayout>
   );
 }

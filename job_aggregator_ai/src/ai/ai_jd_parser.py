@@ -1,0 +1,654 @@
+import os
+import re
+import json
+from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
+
+from src.ai.prompts import (
+    JD_PARSER_SYSTEM_PROMPT,
+    build_jd_parser_prompt,
+)
+
+load_dotenv()
+
+USE_AI = os.getenv("USE_AI", "true").lower() == "true"
+
+AI_PRIMARY_PROVIDER = os.getenv("AI_PRIMARY_PROVIDER", "groq").lower()
+AI_FALLBACK_PROVIDER = os.getenv("AI_FALLBACK_PROVIDER", "gemini").lower()
+
+ENABLE_SKILL_VALIDATION = (
+    os.getenv("ENABLE_SKILL_VALIDATION", "true").lower() == "true"
+)
+ENABLE_PROMPT_INJECTION_FILTER = (
+    os.getenv("ENABLE_PROMPT_INJECTION_FILTER", "true").lower() == "true"
+)
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+
+def safe_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    try:
+        if not text:
+            return None
+
+        cleaned = (
+            str(text)
+            .replace("```json", "")
+            .replace("```JSON", "")
+            .replace("```", "")
+            .strip()
+        )
+
+        start = cleaned.find("{")
+        end = cleaned.rfind("}") + 1
+
+        if start == -1 or end <= start:
+            return None
+
+        return json.loads(cleaned[start:end])
+
+    except Exception as error:
+        print("❌ JD JSON parse failed:", error)
+        return None
+
+
+def repair_json_response(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    try:
+        if not text:
+            return None
+
+        cleaned = str(text).strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}") + 1
+
+        if start == -1 or end <= start:
+            return None
+
+        repaired = cleaned[start:end]
+        repaired = re.sub(r",\s*}", "}", repaired)
+        repaired = re.sub(r",\s*]", "]", repaired)
+
+        return json.loads(repaired)
+
+    except Exception as error:
+        print("❌ JD JSON repair failed:", error)
+        return None
+
+
+def sanitize_text(text: str) -> str:
+    if not text:
+        return ""
+
+    cleaned = str(text)
+
+    if not ENABLE_PROMPT_INJECTION_FILTER:
+        return cleaned.strip()
+
+    injection_patterns = [
+        r"ignore\s+(all\s+)?previous\s+instructions?",
+        r"disregard\s+(all\s+)?previous\s+instructions?",
+        r"you\s+are\s+now",
+        r"new\s+system\s+prompt",
+        r"developer\s+message",
+        r"system\s+message",
+        r"act\s+as\s+",
+        r"jailbreak",
+        r"dan\s+mode",
+        r"<script.*?>.*?</script>",
+        r"\[inst\]",
+        r"<\|system\|>",
+    ]
+
+    for pattern in injection_patterns:
+        cleaned = re.sub(
+            pattern,
+            " ",
+            cleaned,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+    return cleaned.strip()
+
+
+def normalize_skill(skill: str) -> str:
+    skill = str(skill or "").strip()
+
+    if not skill:
+        return ""
+
+    skill = re.sub(r"\s+", " ", skill)
+    skill = skill.strip(".,;:-|/\\ ")
+
+    replacements = {
+        "problem-solving": "Problem Solving",
+        "problem solving": "Problem Solving",
+        "technical problem-solving": "Technical Problem Solving",
+        "technical problem solving": "Technical Problem Solving",
+        "communication skills": "Communication",
+        "team work": "Teamwork",
+        "team-work": "Teamwork",
+        "electrical installation": "Electrical Installation",
+        "electrical installations": "Electrical Installation",
+        "safety procedure": "Safety Procedures",
+        "safety procedures": "Safety Procedures",
+        "troubleshoot": "Troubleshooting",
+        "troubleshooting": "Troubleshooting",
+    }
+
+    lower = skill.lower()
+
+    if lower in replacements:
+        return replacements[lower]
+
+    uppercase_terms = {
+        "api",
+        "sql",
+        "aws",
+        "gcp",
+        "ai",
+        "ml",
+        "nlp",
+        "ui",
+        "ux",
+        "hr",
+        "crm",
+        "erp",
+        "ats",
+        "kpi",
+        "seo",
+        "sem",
+        "hvac",
+        "osha",
+        "nec",
+        "cad",
+        "cnc",
+        "plc",
+        "b2b",
+        "b2c",
+        "saas",
+    }
+
+    words = []
+
+    for word in skill.replace("_", " ").split():
+        clean = word.strip()
+
+        if clean.lower() in uppercase_terms:
+            words.append(clean.upper())
+        else:
+            words.append(clean.capitalize())
+
+    return " ".join(words)
+
+
+def is_valid_skill(skill: str) -> bool:
+    if not ENABLE_SKILL_VALIDATION:
+        return True
+
+    value = str(skill or "").strip()
+    lower = value.lower()
+
+    if not value:
+        return False
+
+    if len(lower) < 2 or len(lower) > 70:
+        return False
+
+    if re.fullmatch(r"[\d\s./+-]+", lower):
+        return False
+
+    exact_blocked = {
+        "generated by talentflow ai",
+        "not added",
+        "na",
+        "n/a",
+        "none",
+        "null",
+        "you",
+        "we",
+        "our",
+        "will",
+        "shall",
+        "must",
+        "should",
+        "assist",
+        "ensure",
+        "support",
+        "work",
+        "works",
+        "working",
+        "activities",
+        "completed",
+        "according",
+        "standard",
+        "standards",
+        "mind",
+        "computing",
+    }
+
+    if lower in exact_blocked:
+        return False
+
+    employment_meta = {
+        "full-time",
+        "full time",
+        "part-time",
+        "part time",
+        "onsite",
+        "on-site",
+        "on site",
+        "remote",
+        "hybrid",
+        "internship",
+        "contract",
+        "freelance",
+    }
+
+    if lower in employment_meta:
+        return False
+
+    company_suffixes = [
+        " pvt ltd",
+        " private limited",
+        " ltd",
+        " llc",
+        " inc",
+        " corporation",
+        " company",
+        " technologies",
+        " solutions",
+        " services",
+    ]
+
+    if any(lower.endswith(suffix) for suffix in company_suffixes):
+        return False
+
+    weak_single_words = {
+        "candidate",
+        "employee",
+        "team",
+        "department",
+        "role",
+        "job",
+        "position",
+        "responsibility",
+        "responsibilities",
+        "requirement",
+        "requirements",
+        "qualification",
+        "benefit",
+        "benefits",
+        "salary",
+        "location",
+        "nickerie",
+    }
+
+    if len(lower.split()) == 1 and lower in weak_single_words:
+        return False
+
+    return True
+
+
+def _as_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        raw = value
+    elif isinstance(value, str):
+        raw = [
+            item.strip()
+            for item in value.replace("|", ",").split(",")
+        ]
+    else:
+        raw = [str(value)]
+
+    cleaned = []
+    seen = set()
+
+    for item in raw:
+        if isinstance(item, dict):
+            item = json.dumps(item, ensure_ascii=False)
+
+        text = str(item or "").strip()
+
+        if not text:
+            continue
+
+        normalized = normalize_skill(text)
+
+        if not is_valid_skill(normalized):
+            continue
+
+        key = normalized.lower()
+
+        if key not in seen:
+            cleaned.append(normalized)
+            seen.add(key)
+
+    return cleaned
+
+
+def _as_text_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        raw = value
+    elif isinstance(value, str):
+        raw = [
+            item.strip()
+            for item in re.split(r"\n|•|- ", value)
+            if item.strip()
+        ]
+    else:
+        raw = [str(value)]
+
+    cleaned = []
+    seen = set()
+
+    blocked = {
+        "generated by talentflow ai",
+        "not added",
+        "na",
+        "n/a",
+        "none",
+        "null",
+    }
+
+    for item in raw:
+        text = str(item or "").strip()
+        text = re.sub(r"^[•\-\*\d.\s]+", "", text).strip()
+
+        if not text:
+            continue
+
+        lower = text.lower()
+
+        if lower in blocked:
+            continue
+
+        if "generated by talentflow ai" in lower:
+            continue
+
+        key = lower
+
+        if key not in seen:
+            cleaned.append(text)
+            seen.add(key)
+
+    return cleaned
+
+
+def normalize_scoring_profile(value: Any) -> Dict[str, float]:
+    default_profile = {
+        "requiredSkillsWeight": 0.40,
+        "semanticSimilarityWeight": 0.40,
+        "experienceWeight": 0.10,
+        "educationWeight": 0.05,
+        "profileQualityWeight": 0.05,
+    }
+
+    if not isinstance(value, dict):
+        return default_profile
+
+    profile = {}
+
+    for key, default_value in default_profile.items():
+        try:
+            profile[key] = float(value.get(key, default_value) or 0)
+        except Exception:
+            profile[key] = default_value
+
+    total = sum(profile.values())
+
+    if total <= 0:
+        return default_profile
+
+    return {
+        key: round(val / total, 4)
+        for key, val in profile.items()
+    }
+
+
+def normalize(data: Dict[str, Any], text: str, source: str) -> Dict[str, Any]:
+    keys = [
+        "title",
+        "company",
+        "location",
+        "jobType",
+        "workMode",
+        "experienceLevel",
+        "experienceYears",
+        "salary",
+        "currency",
+        "skills",
+        "technicalSkills",
+        "softSkills",
+        "tools",
+        "frameworks",
+        "databases",
+        "domains",
+        "responsibilities",
+        "requirements",
+        "qualifications",
+        "benefits",
+        "applyLink",
+        "contactEmail",
+        "contactPhone",
+        "description",
+        "summary",
+        "jobCategory",
+        "scoringProfile",
+        "confidence",
+        "jd_text",
+    ]
+
+    result = {key: data.get(key, "") for key in keys}
+
+    skill_fields = [
+        "skills",
+        "technicalSkills",
+        "softSkills",
+        "tools",
+        "frameworks",
+        "databases",
+        "domains",
+    ]
+
+    text_list_fields = [
+        "responsibilities",
+        "requirements",
+        "qualifications",
+        "benefits",
+    ]
+
+    for field in skill_fields:
+        result[field] = _as_list(result.get(field))
+
+    for field in text_list_fields:
+        result[field] = _as_text_list(result.get(field))
+
+    all_skills = []
+
+    for field in [
+        "skills",
+        "technicalSkills",
+        "tools",
+        "frameworks",
+        "databases",
+        "domains",
+    ]:
+        all_skills.extend(result.get(field, []))
+
+    result["skills"] = sorted(
+        set(skill.strip() for skill in all_skills if skill.strip())
+    )
+
+    try:
+        result["experienceYears"] = float(result.get("experienceYears") or 0)
+    except Exception:
+        result["experienceYears"] = 0
+
+    work_mode = str(result.get("workMode", "")).strip().lower()
+
+    if work_mode in ["on-site", "onsite", "on site", "work from office", "wfo"]:
+        result["workMode"] = "Onsite"
+    elif work_mode in ["remote", "work from home", "wfh"]:
+        result["workMode"] = "Remote"
+    elif work_mode == "hybrid":
+        result["workMode"] = "Hybrid"
+
+    job_type = str(result.get("jobType", "")).strip().lower()
+
+    if job_type in ["full time", "full-time", "fulltime"]:
+        result["jobType"] = "Full-time"
+    elif job_type in ["part time", "part-time", "parttime"]:
+        result["jobType"] = "Part-time"
+    elif job_type in ["intern", "internship"]:
+        result["jobType"] = "Internship"
+    elif job_type == "contract":
+        result["jobType"] = "Contract"
+
+    for field in ["applyLink", "contactEmail", "contactPhone"]:
+        value = str(result.get(field, "")).strip()
+
+        if value.lower() in ["not added", "na", "n/a", "none", "null"]:
+            result[field] = ""
+
+    salary = str(result.get("salary", "")).strip()
+    salary_lower = salary.lower()
+
+    if salary and not result.get("currency"):
+        if "₹" in salary or "inr" in salary_lower or "rs" in salary_lower:
+            result["currency"] = "INR"
+        elif "$" in salary or "usd" in salary_lower:
+            result["currency"] = "USD"
+        elif "€" in salary or "eur" in salary_lower:
+            result["currency"] = "EUR"
+        elif salary.replace(",", "").replace(".", "").isdigit():
+            result["currency"] = "INR"
+
+    try:
+        confidence = float(result.get("confidence") or 0)
+        result["confidence"] = max(0.0, min(1.0, confidence))
+    except Exception:
+        result["confidence"] = 0.75 if source.lower().startswith("groq") else 0.65
+
+    result["scoringProfile"] = normalize_scoring_profile(
+        result.get("scoringProfile")
+    )
+
+    result["jd_text"] = text
+    result["source"] = source
+
+    return result
+
+
+def parse_with_groq(text: str) -> Optional[Dict[str, Any]]:
+    if not GROQ_API_KEY:
+        return None
+
+    try:
+        from groq import Groq
+
+        client = Groq(api_key=GROQ_API_KEY)
+
+        clean_text = sanitize_text(text)
+
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": JD_PARSER_SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": build_jd_parser_prompt(clean_text),
+                },
+            ],
+            temperature=0.1,
+            max_tokens=3500,
+        )
+
+        content = response.choices[0].message.content
+
+        data = safe_json(content) or repair_json_response(content)
+
+        if not data:
+            return None
+
+        print("✅ JD parsed using Groq AI")
+        return normalize(data, clean_text, "Groq AI")
+
+    except Exception as error:
+        print("❌ Groq JD parser failed:", error)
+        return None
+
+
+def parse_with_gemini(text: str) -> Optional[Dict[str, Any]]:
+    if not GEMINI_API_KEY:
+        return None
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        clean_text = sanitize_text(text)
+
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=build_jd_parser_prompt(clean_text),
+        )
+
+        content = getattr(response, "text", "")
+
+        data = safe_json(content) or repair_json_response(content)
+
+        if not data:
+            return None
+
+        print("✅ JD parsed using Gemini AI")
+        return normalize(data, clean_text, "Gemini AI")
+
+    except Exception as error:
+        print("❌ Gemini JD parser failed:", error)
+        return None
+
+
+def parse_jd_ai(text: str) -> Optional[Dict[str, Any]]:
+    if not USE_AI:
+        return None
+
+    if not text or not text.strip():
+        return None
+
+    providers = []
+
+    if AI_PRIMARY_PROVIDER == "groq":
+        providers.append(parse_with_groq)
+    elif AI_PRIMARY_PROVIDER == "gemini":
+        providers.append(parse_with_gemini)
+
+    if AI_FALLBACK_PROVIDER == "groq":
+        providers.append(parse_with_groq)
+    elif AI_FALLBACK_PROVIDER == "gemini":
+        providers.append(parse_with_gemini)
+
+    for provider in [parse_with_groq, parse_with_gemini]:
+        if provider not in providers:
+            providers.append(provider)
+
+    for provider in providers:
+        data = provider(text)
+
+        if data:
+            return data
+
+    return None

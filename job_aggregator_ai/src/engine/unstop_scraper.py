@@ -105,9 +105,6 @@ async def extract_unstop_details(context, job):
 # 🔥 Main scraper
 # =========================
 async def run_unstop_scraper():
-    print(f"\n🚀 UNSTOP SCRAPER START: {datetime.now()}")
-    print("============================================")
-
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)  # 🔥 FAST MODE
         context = await browser.new_context()
@@ -119,8 +116,6 @@ async def run_unstop_scraper():
             await page.wait_for_load_state("domcontentloaded")
 
             seen_links = set()
-
-            print("🔄 Smart Scrolling...")
 
             # 🔥 Scroll and collect links
             for _ in range(20):
@@ -136,15 +131,10 @@ async def run_unstop_scraper():
 
                 new_links = [l for l in links if l not in seen_links]
 
-                print(f"📊 Total: {len(links)} | New: {len(new_links)}")
-
                 if not new_links:
-                    print("⛔ No more jobs loading")
                     break
 
                 seen_links.update(new_links)
-
-            print(f"\n📊 TOTAL LINKS: {len(seen_links)}")
 
             # 🔥 Convert to job objects
             base_jobs = []
@@ -157,16 +147,12 @@ async def run_unstop_scraper():
                     "source": "Unstop"
                 })
 
-            print("🔍 Fetching details...")
-
             # 🔥 Parallel detail scraping (controlled)
             detailed_jobs = await asyncio.gather(
                 *[extract_unstop_details(context, job) for job in base_jobs]
             )
 
             detailed_jobs = [j for j in detailed_jobs if j]
-
-            print(f"\n📊 FINAL JOBS: {len(detailed_jobs)}")
 
             if detailed_jobs:
                 inserted = await db_handler.save_jobs(detailed_jobs)

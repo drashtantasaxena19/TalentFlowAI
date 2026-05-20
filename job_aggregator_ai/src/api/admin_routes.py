@@ -96,60 +96,6 @@ async def ensure_admin(current_user=Depends(require_roles(["admin"]))):
     return current_user
 
 
-# =========================
-# Admin Creation
-# =========================
-class CreateAdminPayload(BaseModel):
-    name: str = Field(..., min_length=2)
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-
-
-@admin_router.post("/users/create-admin")
-async def admin_create_admin_user(
-    payload: CreateAdminPayload,
-    current_user: dict = Depends(ensure_admin),
-):
-    existing = await users_collection.find_one({"email": payload.email.lower()})
-
-    if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="User with this email already exists",
-        )
-
-    admin_data = {
-        "name": payload.name.strip(),
-        "email": payload.email.lower(),
-        "password": hash_password(payload.password),
-        "role": "admin",
-        "companyName": "",
-        "isActive": True,
-        "subscription": {
-            "plan": "admin",
-            "status": "active",
-            "start_date": datetime.utcnow(),
-            "end_date": None,
-            "auto_renew": False,
-        },
-        "usage": {},
-        "candidateProfile": {},
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow(),
-        "createdByAdmin": current_user.get("email"),
-    }
-
-    await users_collection.insert_one(admin_data)
-
-    admin_data.pop("password", None)
-
-    return {
-        "success": True,
-        "message": "Admin user created successfully",
-        "user": serialize_doc(admin_data),
-    }
-
-
 
 # =========================
 # DASHBOARD
